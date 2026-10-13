@@ -93,3 +93,19 @@ Tests cover the original regime logic, market/service separation, silent feeds, 
 The Pages site runs the self-contained replay described above. The server-backed version still needs Python and a persistent writable journal. Existing AWS manifests and scripts are retained for review, not certified here. Their defaults create chargeable AWS resources; do not run them as part of local setup.
 
 Before any production exposure, add authentication/authorization to state-changing endpoints, real telemetry adapters, approved investigation tools, durable SAM handoff and incident replay qualification. See the [pilot checklist](docs/citi-operations-design.md#production-pilot-before-claiming-robustness).
+
+### Update the existing AWS dashboard only
+
+Build and push a tested `linux/amd64` image to the existing ECR repository, then run:
+
+```bash
+FX_IMAGE='ECR_REPOSITORY@sha256:TESTED_DIGEST' deploy/scripts/update-dashboard.sh
+```
+
+This updates the existing `sam-fx/fx-regime` deployment without running Terraform,
+reinstalling Agent Mesh or changing network access rules. It preserves existing broker
+settings and secret references, disables external model calls, and mounts a 1 GiB gp3
+volume for the incident journal. One replica with a Recreate rollout avoids concurrent
+SQLite writers; a short interruption is expected during rollout. The previous deployment
+specification is saved under ignored `.generated/` for rollback. Cluster API access and a
+valid AWS SSO session are prerequisites.

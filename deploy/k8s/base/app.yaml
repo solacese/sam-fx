@@ -6,6 +6,7 @@ metadata:
   labels: {app: fx-regime, app.kubernetes.io/part-of: sam-fx}
 spec:
   replicas: 1
+  strategy: {type: Recreate}
   selector:
     matchLabels: {app: fx-regime}
   template:
@@ -15,13 +16,21 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         seccompProfile: {type: RuntimeDefault}
+        fsGroup: 10001
+      volumes:
+        - name: incident-journal
+          persistentVolumeClaim: {claimName: fx-incident-journal}
       containers:
         - name: app
           image: ${FX_IMAGE}
           imagePullPolicy: IfNotPresent
           ports:
             - {name: http, containerPort: 8080}
+          volumeMounts:
+            - {name: incident-journal, mountPath: /var/lib/fx-regime}
           env:
+            - {name: INCIDENT_STORE_PATH, value: /var/lib/fx-regime/incidents.sqlite3}
+            - {name: ENABLE_EXTERNAL_PROVIDERS, value: "false"}
             - {name: APP_ENV, value: production}
             - {name: GROQ_MODEL, value: openai/gpt-oss-120b}
             - {name: JEV_ENDPOINT, value: https://api.typesafe.ai/v1/systemone}

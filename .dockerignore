@@ -14,3 +14,7 @@ test-results*
 *.tfstate*
 *pull-secret*.yaml
 *pull-secret*.yml
+
+.runtime
+dist
+node_modules

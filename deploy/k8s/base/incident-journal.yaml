@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fx-incident-journal
+  namespace: sam-fx
+  labels: {app: fx-regime, app.kubernetes.io/part-of: sam-fx}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 1Gi

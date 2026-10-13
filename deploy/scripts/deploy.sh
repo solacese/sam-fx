@@ -29,6 +29,7 @@ kubectl create secret generic fx-provider-secrets -n "$NAMESPACE" \
 
 kubectl apply -n "$NAMESPACE" -f "$PULL_SECRET"
 kubectl apply -f deploy/k8s/base/storageclass.yaml
+kubectl apply -f deploy/k8s/base/incident-journal.yaml
 
 REPOSITORY=$(terraform -chdir=infra/aws output -raw ecr_repository_url)
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${REPOSITORY%%/*}"
