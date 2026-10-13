@@ -1,0 +1,161 @@
+# Solace Agent Mesh - Bill of Materials
+# Single source of truth for release artifacts and compatibility
+#
+# All digests use OCI format: sha256:<hex>
+#
+# Field definitions:
+#   file_checksum - SHA256 hash of the file for integrity verification
+#   image_id - Docker image ID (config digest), verifiable after docker load
+#
+# To verify file checksums:
+#   sha256sum <path>
+#   # Compare output with file_checksum (ignoring 'sha256:' prefix)
+#
+# To verify loaded images:
+#   docker load -i <path>
+#   docker inspect <image>:<tag> --format '{{.Id}}'
+#   # Output should match the image_id in this BOM
+
+details:
+  name: solace-agent-mesh
+  version: 2.368.1
+  build: '2026-10-01T16:59:40Z'
+charts:
+- path: Charts/solace-agent-mesh-2.1.212.tar.gz
+  file_checksum: sha256:8a5ac8519c0fce83d5a996f843da59ca38bc77845e239124378daf8dc3b256dd
+images:
+- name: solace-agent-mesh
+  amd64:
+    path: Images/amd64/solace-agent-mesh-2.368.1-app-amd64.tar.gz
+    image_id: sha256:6ab8a42086d4f491241a8f6bfd0f4b395a6a5dff1fdf33b3e76028e14cf73ea3
+    file_checksum: sha256:f852e7cd9f561f0a9d93dab87759be8c368742a6182fa36a8e4dd85f04dcf6b9
+  arm64:
+    path: Images/arm64/solace-agent-mesh-2.368.1-app-arm64.tar.gz
+    image_id: sha256:cfdc76c06513f0437b8a3bff0998ca1acbd61863a97fc9942c133e6023b24397
+    file_checksum: sha256:11906ca59409182f77a9dc3a974ab72f7dc2a6ba6096f9775d66b9aea825c0b2
+- name: solace-agent-mesh-str
+  amd64:
+    path: Images/amd64/solace-agent-mesh-1.65.0-str-amd64.tar.gz
+    image_id: sha256:5daffa005cc6afc97509d38930e92976c1eae8d891c64b428d9ad7d6fc505d42
+    file_checksum: sha256:79d3a5b700a97c8681e2d1f0420f3fbb137f3761958e9f3d1c8df98be79e65a3
+  arm64:
+    path: Images/arm64/solace-agent-mesh-1.65.0-str-arm64.tar.gz
+    image_id: sha256:693278c46c6786c21bbe46e2610bbd1cbf1d82dc6530bc29e52a6d1aacf3e37e
+    file_checksum: sha256:3a118507df51aeec270b28114c079d63ed8f27685676104ffcf3ed197ed7c58d
+- name: postgres
+  amd64:
+    path: Images/amd64/postgres-18.0-trixie-amd64.tar.gz
+    image_id: sha256:230512d18ea4d781d894f0b99156896f4bd8f3851f45e76210ef5d2ab3f73165
+    file_checksum: sha256:d3b7d55ed0a620ac91aadfe2f9a42755ea9de952dca6233526c57ee91363d973
+  arm64:
+    path: Images/arm64/postgres-18.0-trixie-arm64.tar.gz
+    image_id: sha256:b0c201154295cd6d12dfcc978b3e438ac4e6c14933e750dc666a01a12fc5d7e9
+    file_checksum: sha256:9d8925b77e5b29e77d987d724cadaddc28a2ef925445df25ce28799ab839251d
+- name: seaweedfs
+  amd64:
+    path: Images/amd64/seaweedfs-3.97-compliant-amd64.tar.gz
+    image_id: sha256:5259584131c8de4d71d7cab05ed539ef741b6a8478e9bbee8e80b4dcf6bb376e
+    file_checksum: sha256:c0b1abef17fbcb40127c42e49645aedf1c9970d33dfa159a551e25d081d2920e
+  arm64:
+    path: Images/arm64/seaweedfs-3.97-compliant-arm64.tar.gz
+    image_id: sha256:644cc3147f3887a126e02d9cb3fbf701f9ba4ec54de0e9fec542b86de008ecd1
+    file_checksum: sha256:4fdc0e7974683f382abdbf8838b69a5fdf2498f7bf26c0132561fb0f9d9c1fa9
+- name: solace-pubsub-enterprise
+  amd64:
+    path: Images/amd64/solace-pubsub-enterprise-10.25.0.193-multi-arch-amd64.tar.gz
+    image_id: sha256:b2ed0812f19222c1129fed4c3b249bb9e55515dd60ee1414dab0da3cab1426ce
+    file_checksum: sha256:52c382ecbc679de3926acbce95ce8ca562d767068a117b5c682ba603928dd0eb
+  arm64:
+    path: Images/arm64/solace-pubsub-enterprise-10.25.0.193-multi-arch-arm64.tar.gz
+    image_id: sha256:bd58536cacc72f4430bd66531b09dc185cde043bbce1b853eaa4d8b875177f3e
+    file_checksum: sha256:edb24763761d02afa71bcac62ab4c1f35aa4ffe843cd98f43ede1e5f867f6875
+cli:
+- path: CLI/solace-agent-mesh-2.368.1-cli-macos-universal.pkg
+  os: macos
+  arch: universal
+  file_checksum: sha256:816e2ce8d70d73784dc6d0994fcb88fbb4612600947a603bdd8caff07dd7a588
+- path: CLI/solace-agent-mesh-2.368.1-cli-linux-amd64.tar.gz
+  os: linux
+  arch: amd64
+  file_checksum: sha256:7fa4c559712380aece2233821928929bd26ad16540ee99b2edae2ad7970b5b64
+- path: CLI/solace-agent-mesh-2.368.1-cli-linux-arm64.tar.gz
+  os: linux
+  arch: arm64
+  file_checksum: sha256:59471e2cd4547504ee2eeda2323bbec2ccad51b8eb45d1026ad08a81b1235687
+- path: CLI/solace-agent-mesh-2.368.1-cli-windows-x64.zip
+  os: windows
+  arch: x64
+  file_checksum: sha256:6a6f1ce2313e4956408447383f09209c4ae3c4bfb3268d062b44326132b007f2
+desktop:
+- path: Desktop/Windows/solace-agent-mesh-2.368.1-desktop-windows-x64.exe
+  os: windows
+  arch: x64
+  file_checksum: sha256:560ab7b8ff99697bcf0046a597a0dfea8ff8656d7b22967bea5de4c071a47587
+- path: Desktop/macOS/solace-agent-mesh-2.368.1-desktop-macos-intel.dmg
+  os: macos
+  arch: intel
+  file_checksum: sha256:af3e4002ff8f94273f51ad3c7edcac79bdd37123dcc727114c737994bdc7bd4c
+- path: Desktop/macOS/solace-agent-mesh-2.368.1-desktop-macos-apple-silicon.dmg
+  os: macos
+  arch: apple-silicon
+  file_checksum: sha256:55b2c05351830eb6bce7f29d030eb198d8982b38878df416c7631d4a55cea0e3
+- path: Desktop/Linux (Experimental)/legacy-distros (webkit2gtk-4.0)/amd64/solace-agent-mesh-2.368.1-desktop-linux-amd64-webkit2gtk-4.0.deb
+  os: linux
+  arch: amd64
+  variant: webkit2gtk-4.0
+  file_checksum: sha256:7523a31dfbe7d194ebe4084ea18e10267c7cc4e8edceaf1b24b23f3b84ba4845
+- path: Desktop/Linux (Experimental)/legacy-distros (webkit2gtk-4.0)/arm64/solace-agent-mesh-2.368.1-desktop-linux-arm64-webkit2gtk-4.0.deb
+  os: linux
+  arch: arm64
+  variant: webkit2gtk-4.0
+  file_checksum: sha256:11d1fa29dba3adbc14c060188d697c20e589a0e5ec328cc97f1cf2681534ebcf
+- path: Desktop/Linux (Experimental)/modern-distros (webkit2gtk-4.1)/amd64/solace-agent-mesh-2.368.1-desktop-linux-amd64-webkit2gtk-4.1.deb
+  os: linux
+  arch: amd64
+  variant: webkit2gtk-4.1
+  file_checksum: sha256:aeafe28a8d8559973b864f8f544805c2bfb0db11a41b3f0416ee0ca060225d76
+- path: Desktop/Linux (Experimental)/modern-distros (webkit2gtk-4.1)/arm64/solace-agent-mesh-2.368.1-desktop-linux-arm64-webkit2gtk-4.1.deb
+  os: linux
+  arch: arm64
+  variant: webkit2gtk-4.1
+  file_checksum: sha256:77f1be692b865fd28efc980fe020d5c698809e28a01bf2018bbe416f5c3a2782
+- path: Desktop/Linux (Experimental)/legacy-distros (webkit2gtk-4.0)/amd64/solace-agent-mesh-2.368.1-desktop-linux-amd64-webkit2gtk-4.0.rpm
+  os: linux
+  arch: amd64
+  variant: webkit2gtk-4.0
+  file_checksum: sha256:bd195caf2b9ac75964d8ea29953788fb2c57938cdafd03fdf9b0c10e2e19058b
+- path: Desktop/Linux (Experimental)/legacy-distros (webkit2gtk-4.0)/arm64/solace-agent-mesh-2.368.1-desktop-linux-arm64-webkit2gtk-4.0.rpm
+  os: linux
+  arch: arm64
+  variant: webkit2gtk-4.0
+  file_checksum: sha256:cb3c5d0a2198e9c15d712fd515efa95caf602105b395356fba690ebf3297f902
+- path: Desktop/Linux (Experimental)/modern-distros (webkit2gtk-4.1)/amd64/solace-agent-mesh-2.368.1-desktop-linux-amd64-webkit2gtk-4.1.rpm
+  os: linux
+  arch: amd64
+  variant: webkit2gtk-4.1
+  file_checksum: sha256:e95e4dadccf14da95ffef83a276c72f8278ceea34db33e823e7ab228f5a167eb
+- path: Desktop/Linux (Experimental)/modern-distros (webkit2gtk-4.1)/arm64/solace-agent-mesh-2.368.1-desktop-linux-arm64-webkit2gtk-4.1.rpm
+  os: linux
+  arch: arm64
+  variant: webkit2gtk-4.1
+  file_checksum: sha256:c60690de87ccb7a20f200a9214c8afa1afd83d96470c04a5f725f2819ef1c8c7
+- path: Desktop/Linux (Experimental)/legacy-distros (webkit2gtk-4.0)/amd64/solace-agent-mesh-2.368.1-desktop-linux-amd64-webkit2gtk-4.0.tar.gz
+  os: linux
+  arch: amd64
+  variant: webkit2gtk-4.0
+  file_checksum: sha256:981eec7a23bd2af52b52b2186024559db2d33aa2bdbd7814efdc0276d1cf5c41
+- path: Desktop/Linux (Experimental)/legacy-distros (webkit2gtk-4.0)/arm64/solace-agent-mesh-2.368.1-desktop-linux-arm64-webkit2gtk-4.0.tar.gz
+  os: linux
+  arch: arm64
+  variant: webkit2gtk-4.0
+  file_checksum: sha256:05df1e6c05f076a74651d54ed3023b58cfe84c617e8fd06746aaea28f29d2261
+- path: Desktop/Linux (Experimental)/modern-distros (webkit2gtk-4.1)/amd64/solace-agent-mesh-2.368.1-desktop-linux-amd64-webkit2gtk-4.1.tar.gz
+  os: linux
+  arch: amd64
+  variant: webkit2gtk-4.1
+  file_checksum: sha256:cf7dd33d3e0e5b0dd558e9c2bc291fdd01f1418f2b24f14c819b1e935328446d
+- path: Desktop/Linux (Experimental)/modern-distros (webkit2gtk-4.1)/arm64/solace-agent-mesh-2.368.1-desktop-linux-arm64-webkit2gtk-4.1.tar.gz
+  os: linux
+  arch: arm64
+  variant: webkit2gtk-4.1
+  file_checksum: sha256:ca223a12c523c9ccb17ef2bc28d831ada4f6281730f822e185681cadef2f06ce

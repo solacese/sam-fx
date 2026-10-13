@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fx-regime
+  namespace: sam-fx
+  labels: {app: fx-regime, app.kubernetes.io/part-of: sam-fx}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: fx-regime}
+  template:
+    metadata:
+      labels: {app: fx-regime, app.kubernetes.io/part-of: sam-fx}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: ${FX_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - {name: APP_ENV, value: production}
+            - {name: GROQ_MODEL, value: openai/gpt-oss-120b}
+            - {name: JEV_ENDPOINT, value: https://api.typesafe.ai/v1/systemone}
+            - {name: JEV_MODEL, value: jev-latest}
+            - {name: SOLACE_HOST, value: tcp://sam-solace-agent-mesh-broker:55555}
+            - {name: DEMO_MODE, value: "true"}
+            - name: SOLACE_USERNAME
+              valueFrom: {secretKeyRef: {name: sam-solace-agent-mesh-core-secrets, key: SOLACE_BROKER_USERNAME}}
+            - name: SOLACE_PASSWORD
+              valueFrom: {secretKeyRef: {name: sam-solace-agent-mesh-core-secrets, key: SOLACE_BROKER_PASSWORD}}
+            - name: GROQ_API_KEY
+              valueFrom: {secretKeyRef: {name: fx-provider-secrets, key: GROQ_API_KEY}}
+            - name: JEV_API_KEY
+              valueFrom: {secretKeyRef: {name: fx-provider-secrets, key: JEV_API_KEY}}
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fx-regime
+  namespace: sam-fx
+spec:
+  selector: {app: fx-regime}
+  ports:
+    - {name: http, port: 8080, targetPort: http}

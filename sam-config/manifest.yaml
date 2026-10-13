@@ -1,0 +1,15 @@
+kind: manifest
+name: fx-regime-demo
+description: One Groq-backed agent and one event-mesh trigger for confirmed FX regime changes.
+target:
+  name: sam-fx
+  url: https://mesh.fx.sol-se-emea.com
+  auth:
+    type: oauth
+resources:
+  models:
+    - fx-groq
+  agents:
+    - FXRegimeAgent
+  entrypoints:
+    - fx-regime-events

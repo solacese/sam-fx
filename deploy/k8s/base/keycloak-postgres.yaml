@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-postgres
+  namespace: sam-fx
+spec:
+  clusterIP: None
+  selector: {app: keycloak-postgres}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak-postgres
+  namespace: sam-fx
+  labels: {app: keycloak-postgres, app.kubernetes.io/part-of: sam-fx}
+spec:
+  serviceName: keycloak-postgres
+  replicas: 1
+  selector:
+    matchLabels: {app: keycloak-postgres}
+  template:
+    metadata:
+      labels: {app: keycloak-postgres, app.kubernetes.io/part-of: sam-fx}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: postgres
+          image: postgres:18.0-trixie
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - {name: POSTGRES_DB, value: keycloak}
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: keycloak-db, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-db, key: password}}
+          readinessProbe:
+            exec: {command: [pg_isready, -U, keycloak, -d, keycloak]}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+            runAsUser: 999
+            runAsGroup: 999
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: gp3
+        resources:
+          requests: {storage: 5Gi}

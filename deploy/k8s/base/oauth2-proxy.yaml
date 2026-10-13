@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fx-auth
+  namespace: sam-fx
+  labels: {app: fx-auth, app.kubernetes.io/part-of: sam-fx}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: fx-auth}
+  template:
+    metadata:
+      labels: {app: fx-auth, app.kubernetes.io/part-of: sam-fx}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --provider-display-name=FX Keycloak
+            - --oidc-issuer-url=https://id.fx.sol-se-emea.com/realms/fx
+            - --client-id=fx-dashboard
+            - --redirect-url=https://fx.sol-se-emea.com/oauth2/callback
+            - --upstream=http://fx-regime:8080
+            - --email-domain=solace.com
+            - --scope=openid profile email
+            - --code-challenge-method=S256
+            - --reverse-proxy=true
+            - --skip-provider-button=true
+            - --cookie-name=__Secure-sam_fx
+            - --cookie-secure=true
+            - --cookie-httponly=true
+            - --cookie-samesite=lax
+            - --cookie-expire=8h
+            - --cookie-refresh=4m
+            - --pass-access-token=false
+            - --pass-authorization-header=false
+            - --pass-basic-auth=false
+            - --request-logging=false
+            - --api-route=^/api/
+          env:
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: fx-oauth, key: client-secret}}
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom: {secretKeyRef: {name: fx-oauth, key: cookie-secret}}
+          ports:
+            - {name: http, containerPort: 4180}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+          livenessProbe:
+            httpGet: {path: /ping, port: http}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fx-auth
+  namespace: sam-fx
+spec:
+  selector: {app: fx-auth}
+  ports:
+    - {name: http, port: 4180, targetPort: http}

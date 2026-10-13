@@ -1,27 +1,95 @@
-# sam-fx
+# sam-fx · FX operations desk
 
-A static FX desk matching the supplied design: reference rates, an EUR/USD candlestick snapshot, and a simple desk chat. Dark mode with classic green accents.
+A company-neutral, dark terminal-style demo for monitoring FX price delivery. Synthetic market conditions and regional service health are shown separately. Confirmed service incidents produce a frozen evidence summary, an owner, suggested runbook checks and a handover record. No trading or remediation actions are performed.
 
-- Three prepared chat answers: current price, last 30 minutes, and feed status.
-- Subtle replay animation with pause/play and reduced-motion support.
-- 5m candles, with 15m and 1h aggregates; source OHLC rows are expandable in chat.
-- Mesh connection summary and deterministic demo rules.
-- No LLM, backend, external assets, live market connection or order execution.
+The adaptation is based on public research into global-bank FX support workflows. See [research, rationale and production boundaries](docs/citi-operations-design.md).
 
-## Open
+## Published demo
 
-Open `index.html` directly, or run `python3 -m http.server 8080`.
+[Open sam-fx on GitHub Pages](https://solacese.github.io/sam-fx/).
 
-Published at https://solacese.github.io/sam-fx/ using GitHub Pages from `main`, root directory. No build step.
+The public site is a self-contained browser demo. Python generates the scenario frames
+from the same detector, service monitor and prepared explanation code during the build.
+The browser replays them once per second, saves its incident journal in local storage,
+and exports handover JSON. It makes no backend, broker or model requests. Timing is
+explicitly labeled as replay, not a production latency measurement. Browser storage is
+local to this origin/device and is not a shared or authenticated incident database.
 
-## Data
+```bash
+PYTHONPATH=src .venv/bin/python scripts/build_pages.py
+node scripts/test_pages.cjs
+python3 -m http.server 8082 --directory dist
+# Open http://localhost:8082/pages/
+```
 
-`data/snapshot.json` records the supplied screenshot's reference rates and last six OHLC rows. Earlier candles approximate the reference chart. These are design fixtures, **not verified live or historical market data**. The animation does not modify prices or imply a live connection.
+Pushes to `main` run `.github/workflows/pages.yml`: checks, static build, and Pages deployment.
+Only `dist/pages` is published as the website. Backend and integration source remain in the repository.
 
-`data/bundle.js` embeds the same data to allow offline and `file://` use. After editing the JSON, run `python3 scripts/bundle.py`. Dates and prepared responses stay fixed at the supplied snapshot.
+## Run locally
 
-The starting `prompt.md` is an earlier, superseded brief. The latest supplied screenshot and request for three answers define this version.
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+cp .env.example .env
+PYTHONPATH=src SOLACE_HOST='' ENABLE_EXTERNAL_PROVIDERS=false \
+  .venv/bin/uvicorn fx_regime.api:app --host 127.0.0.1 --port 8080
+```
+
+Open <http://localhost:8080>. Default explanations and the three desk answers are deterministic; no LLM is required. `ENABLE_EXTERNAL_PROVIDERS=true` opts into configured Jev/Groq calls. Do not send private data without the appropriate approval.
+
+## Try it
+
+- **Market move:** a market advisory while delivery remains healthy.
+- **Slow consumer:** one regional path degrades; peer evidence helps localize it.
+- **Silent feed:** an incident despite normal market statistics.
+- **Missing telemetry:** visibility becomes UNKNOWN, not healthy or a proven outage.
+- **Market + delivery stress:** abnormal market activity and delivery impairment together.
+
+Scenarios last twelve observations. **Restore normal** ends one early. A service incident requires three consecutive abnormal observations, recovery requires five healthy observations, and **Resolve incident** becomes available after recovery. **Acknowledge** records the demo operator action. Select an incident to see its frozen evidence and runbook. **Export handover** downloads the journal.
+
+The two regional paths, owners, timestamps, priorities and telemetry are synthetic. The chart is a synthetic mid-price trace; it is not the older historical dataset under `data/`.
+
+## Architecture and persistence
+
+```text
+Synthetic features → numeric regime detector → market advisory
+Synthetic telemetry → independent service monitor → service incident
+                                      ↓
+                     SQLite incident + frozen evidence job
+                                      ↓
+                    separate classifier/explanation worker
+                                      ↓
+                   incident result → SSE dashboard / handover
+```
+
+The worker has an eight-second provider deadline, deterministic timeout fallback and at most two attempts for unexpected errors. Sampling continues independently. Duplicate/out-of-order observation seconds are rejected; gaps reset confirmation windows. Incident/job state persists by default in `.runtime/incidents.sqlite3` (ignored by Git). Set `INCIDENT_STORE_PATH=:memory:` for disposable runs. Use one server process with a given store; this is not multi-worker/HA coordination. Retain the SQLite file and its WAL safely for recovery; records are not automatically pruned.
+
+UI latency is **worker time**, excluding detector confirmation and queue waiting. A ten-second end-to-end objective is unvalidated. The agent summarizes supplied evidence; no independent log or telemetry tools are connected.
+
+## Solace / Agent Mesh boundary
+
+With `SOLACE_HOST` empty, everything runs locally. Configured transport optionally mirrors these events using best-effort Direct delivery:
+
+- `fx/market/EURUSD/stats`
+- `fx/regime/EURUSD/change` for market advisories
+- `fx/operations/incident` for service incidents
+- `agent/fx-regime/result`
+
+The current engine does not consume real price/telemetry feeds or dispatch requests through SAM. The local durable journal owns explanation work. The raw tick `FeatureEngine`, `sam-config/`, `infra/` and `deploy/` remain integration scaffolding. Do not describe the demo as an end-to-end production Agent Mesh deployment.
 
 ## Verify
 
-`python3 scripts/check_data.py` checks OHLC validity, the three response contract, the quoted 30-minute statistics, and bundle consistency. `node --check app.js` checks syntax. Browser checks cover chat, timeframes, tabs, animation controls and responsive layout.
+```bash
+.venv/bin/pytest
+.venv/bin/ruff check .
+.venv/bin/mypy src
+node --check web/app.js
+```
+
+Tests cover the original regime logic, market/service separation, silent feeds, missing telemetry, distinct-second confirmation, recovery lifecycle, worker independence, deadline fallback, bounded failures, restart/deduplication and grounded explanations.
+
+## Deployment
+
+The Pages site runs the self-contained replay described above. The server-backed version still needs Python and a persistent writable journal. Existing AWS manifests and scripts are retained for review, not certified here. Their defaults create chargeable AWS resources; do not run them as part of local setup.
+
+Before any production exposure, add authentication/authorization to state-changing endpoints, real telemetry adapters, approved investigation tools, durable SAM handoff and incident replay qualification. See the [pilot checklist](docs/citi-operations-design.md#production-pilot-before-claiming-robustness).

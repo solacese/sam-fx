@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  namespace: sam-fx
+  labels: {app: keycloak, app.kubernetes.io/part-of: sam-fx}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: keycloak}
+  template:
+    metadata:
+      labels: {app: keycloak, app.kubernetes.io/part-of: sam-fx}
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.5.2
+          args: ["start", "--import-realm", "--http-enabled=true", "--proxy-headers=xforwarded", "--hostname=https://id.fx.sol-se-emea.com"]
+          ports:
+            - {name: http, containerPort: 8080}
+          env:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom: {secretKeyRef: {name: keycloak-secrets, key: admin-username}}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-secrets, key: admin-password}}
+            - {name: KC_HTTP_ENABLED, value: "true"}
+            - {name: KC_HOSTNAME_STRICT, value: "true"}
+            - {name: KC_DB, value: postgres}
+            - {name: KC_DB_URL, value: jdbc:postgresql://keycloak-postgres:5432/keycloak}
+            - name: KC_DB_USERNAME
+              valueFrom: {secretKeyRef: {name: keycloak-db, key: username}}
+            - name: KC_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: keycloak-db, key: password}}
+          readinessProbe:
+            httpGet: {path: /realms/master, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: realm, mountPath: /opt/keycloak/data/import, readOnly: true}
+      volumes:
+        - name: realm
+          secret: {secretName: keycloak-realm}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: sam-fx
+spec:
+  selector: {app: keycloak}
+  ports:
+    - {name: http, port: 80, targetPort: http}

@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+.venv
+.terraform
+.credentials
+.generated
+__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+test-results*
+*.tfstate*
+*pull-secret*.yaml
+*pull-secret*.yml

@@ -1,0 +1,26 @@
+controller:
+  replicaCount: 2
+  config:
+    http-snippet: |
+      server {
+        listen 8081;
+        server_name fx.sol-se-emea.com mesh.fx.sol-se-emea.com id.fx.sol-se-emea.com;
+        return 308 https://$host$request_uri;
+      }
+  service:
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: ${CERTIFICATE_ARN}
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: https
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+    loadBalancerSourceRanges: [0.0.0.0/0]
+    targetPorts:
+      http: 8081
+      https: http
+  ingressClassResource:
+    name: nginx
+    default: false
+  metrics:
+    enabled: false

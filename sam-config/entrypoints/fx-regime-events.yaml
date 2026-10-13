@@ -1,0 +1,55 @@
+kind: entrypoint
+name: fx-regime-events
+slug: fx-regime-events
+description: Routes confirmed FX regime changes to the single FXRegimeAgent.
+spec:
+  type: event_mesh
+  deploy: true
+  values:
+    broker_url: tcp://sam-solace-agent-mesh-broker:55555
+    broker_vpn: default
+    broker_username: ${SOLACE_USERNAME}
+    broker_password: ${SOLACE_PASSWORD}
+    tls_skip_verify: "false"
+    event_rules:
+      - name: explain_regime_change
+        subscriptions:
+          - topic: agent/fx-regime/request
+        targetAgent: FXRegimeAgent
+        promptTemplate: "Explain this confirmed FX regime change. Return the required JSON only: {{ message.payload }}"
+        defaultUserIdentity: fx-regime-events
+        acknowledgmentPolicy:
+          mode: on_completion
+          timeoutSeconds: 60
+        messageFormat: json
+        successOutput:
+          enabled: true
+          topic: agent/fx-regime/result
+          topicType: static
+          responseType: structured
+          format: json
+          outputSchema:
+            type: object
+            required:
+              - correlation_id
+              - symbol
+              - assessment
+              - evidence
+              - likely_cause
+              - suggested_next_investigation
+            properties:
+              correlation_id: {type: string}
+              symbol: {type: string}
+              timestamp: {type: string}
+              assessment: {type: string}
+              evidence: {type: array, items: {type: string}}
+              likely_cause: {type: string, enum: [MARKET, INFRASTRUCTURE, BOTH, UNCLEAR]}
+              suggested_next_investigation: {type: string}
+              jev_decisions: {type: array}
+              degraded: {type: boolean}
+              model: {type: string}
+              latency_ms: {type: integer}
+        errorOutput:
+          enabled: true
+          topic: agent/fx-regime/error
+          topicType: static

@@ -1,0 +1,14 @@
+kind: model
+name: fx-groq
+description: Fast Groq model used only after a confirmed FX regime change.
+spec:
+  alias: fx-groq
+  provider: custom
+  modelName: openai/gpt-oss-120b
+  apiBase: https://api.groq.com/openai/v1
+  authConfig:
+    type: apikey
+    api_key: ${GROQ_API_KEY}
+  modelParams:
+    temperature: 0.1
+  maxInputTokens: 8192

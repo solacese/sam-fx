@@ -1,0 +1,88 @@
+global:
+  broker:
+    embedded: true
+  persistence:
+    enabled: true
+    namespaceId: sam-fx
+  imageRegistry: gcr.io/gcp-maas-prod
+  imagePullSecrets:
+    - gcr-reg-secret
+
+sam:
+  authorization:
+    enabled: false
+  dnsName: mesh.fx.sol-se-emea.com
+  frontendServerUrl: https://mesh.fx.sol-se-emea.com
+  fe:
+    apiBaseUrl: ""
+    platformBaseUrl: ""
+
+llmService:
+  llmServiceEndpoint: https://api.groq.com/openai/v1
+  llmServiceApiKey: ${GROQ_API_KEY}
+  planningModel: openai/gpt-oss-120b
+  generalModel: openai/gpt-oss-120b
+  reportModel: openai/gpt-oss-120b
+
+environmentVariables:
+  JEV_ENDPOINT: https://api.typesafe.ai/v1/systemone
+  JEV_MODEL_NAME: jev-latest
+
+extraSecretEnvironmentVars:
+  - envName: JEV_API_KEY
+    secretName: fx-provider-secrets
+    secretKey: JEV_API_KEY
+
+persistence-layer:
+  postgresql:
+    persistence:
+      storageClassName: gp3
+  seaweedfs:
+    persistence:
+      storageClassName: gp3
+
+ingress:
+  enabled: true
+  className: nginx
+  autoConfigurePaths: true
+  host: mesh.fx.sol-se-emea.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+  tls:
+    - hosts: [mesh.fx.sol-se-emea.com]
+      secretName: external-tls-terminated-at-nlb
+
+service:
+  type: ClusterIP
+  tls:
+    enabled: false
+
+samDeployment:
+  imagePullSecret: gcr-reg-secret
+  gwe:
+    image: {repository: solace-agent-mesh, tag: 2.368.1}
+    resources:
+      requests: {cpu: 500m, memory: 1Gi}
+      limits: {cpu: "2", memory: 2Gi}
+  awe:
+    resources:
+      requests: {cpu: "1", memory: 1Gi}
+      limits: {cpu: "2", memory: 2Gi}
+  str:
+    image: {repository: solace-agent-mesh-str, tag: 1.65.0}
+    resources:
+      requests: {cpu: 500m, memory: 2Gi}
+      limits: {cpu: "2", memory: 4Gi}
+
+embeddedBroker:
+  imagePullSecrets: [gcr-reg-secret]
+  image:
+    repository: solace-pubsub-enterprise
+    tag: 10.25.0.193-multi-arch
+  resources:
+    requests: {cpu: 500m, memory: 2480Mi}
+    limits: {cpu: "2", memory: 2900Mi}
+  shmSize: 1Gi
+  storageClassName: gp3
