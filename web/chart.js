@@ -1,105 +1,126 @@
-/* Timestamped source prices; no invented history or interpolated market data. */
+/* Candles aggregate timestamped simulated mid-prices. Missing ticks are not filled. */
 'use strict';
 (() => {
-  const el = id => document.getElementById(id);
-  const svg = el('chart');
+  const el = id => document.getElementById(id), svg = el('chart');
   const utc = value => new Date(value).toLocaleTimeString('en-GB', {timeZone:'UTC'});
-  let points = [], seconds = 300, received = 0, connected = false, geometry = null, inspection = null;
-  const left = 12, top = 16;
-  let right = 818, bottom = 250;
+  let points = [], seconds = 300, interval = 5, showAverage = true;
+  let received = 0, connected = false, geometry = null, inspection = null;
+  const left = 8, top = 15;
+  let right = 818, bottom = 310;
   svg.setAttribute('tabindex', '0');
-  svg.setAttribute('aria-label', 'Simulated EUR/USD price chart. Use left and right arrow keys to inspect observations.');
+  svg.setAttribute('aria-label', 'Simulated EUR/USD candlestick chart. Use left and right arrow keys to inspect candles.');
+  function candlesFor(source) {
+    const buckets = new Map();
+    for(const p of source) {
+      const t = Math.floor(p.t/(interval*1000))*interval*1000;
+      let c = buckets.get(t);
+      if(!c) { c={t,open:p.mid,high:p.mid,low:p.mid,close:p.mid,count:0,last:p}; buckets.set(t,c); }
+      c.high=Math.max(c.high,p.mid); c.low=Math.min(c.low,p.mid); c.close=p.mid; c.count++; c.last=p;
+    }
+    return [...buckets.values()];
+  }
   function draw() {
     if(!points.length) return;
-    const width = Math.max(340, svg.clientWidth), height = width < 540 ? 260 : 290;
-    right = width - 80; bottom = height - 40;
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    const end = points.at(-1).t, start = end - seconds * 1000;
-    const visible = points.filter(p => p.t >= start);
-    const values = visible.map(p => p.mid);
-    const low = Math.min(...values), high = Math.max(...values);
-    const pad = Math.max((high-low)*.18, .00003), lo = low-pad, hi = high+pad;
-    const x = t => left + (t-start)/(end-start)*(right-left);
-    const y = v => bottom - (v-lo)/(hi-lo)*(bottom-top);
-    geometry = {visible,x,y};
-    let grid = '';
-    for(let i=0;i<=4;i++) {
-      const yy = top+(bottom-top)*i/4, v = hi-(hi-lo)*i/4;
-      grid += `<line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}"/><text x="${right+9}" y="${yy+4}">${v.toFixed(5)}</text>`;
-      const xx = left+(right-left)*i/4;
-      grid += `<line x1="${xx}" x2="${xx}" y1="${top}" y2="${bottom}"/>`;
-      if(width >= 540 || i % 2 === 0) grid += `<text x="${xx}" y="${bottom+28}" text-anchor="${i===0?'start':i===4?'end':'middle'}">${utc(start+(end-start)*i/4)}</text>`;
+    const width = Math.max(320,svg.clientWidth), height = width < 540 ? 290 : 340;
+    right=width-69; bottom=height-32; svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    const latest=points.at(-1), end=(Math.floor(latest.t/(interval*1000))+1)*interval*1000;
+    const start=end-seconds*1000, visible=points.filter(p=>p.t>=start), candles=candlesFor(visible);
+    if(!candles.length) return;
+    const low=Math.min(...visible.map(p=>p.mid)), high=Math.max(...visible.map(p=>p.mid));
+    const pad=Math.max((high-low)*.12,.000025), lo=low-pad, hi=high+pad;
+    const x=t=>left+(t-start)/(end-start)*(right-left), y=v=>bottom-(v-lo)/(hi-lo)*(bottom-top);
+    const center=c=>x(c.t+interval*500);
+    const bodyWidth=Math.max(1,Math.min(10,(right-left)/(seconds/interval)*.62));
+    let grid=`<rect x="${right}" y="0" width="69" height="${height}" fill="#edf1f6"/><line class="axis" x1="${right}" x2="${right}" y1="0" y2="${bottom}"/>`;
+    for(let i=0;i<=6;i++) {
+      const yy=top+(bottom-top)*i/6, v=hi-(hi-lo)*i/6;
+      grid+=`<line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}"/><text x="${right+5}" y="${yy+4}">${v.toFixed(5)}</text>`;
     }
-    el('chart-grid').innerHTML = grid;
-    const segments = [];
-    for(const p of visible) {
-      if(!segments.length || p.t-segments.at(-1).at(-1).t>3500) segments.push([]);
-      segments.at(-1).push(p);
+    const ticks=width<540?2:6;
+    for(let i=0;i<=ticks;i++) {
+      const t=start+(end-start)*i/ticks, xx=x(t);
+      grid+=`<line x1="${xx}" x2="${xx}" y1="${top}" y2="${bottom}"/><text class="time-tick" x="${xx}" y="${bottom+22}" text-anchor="${i===0?'start':i===ticks?'end':'middle'}">${utc(t)}</text>`;
     }
-    const paths = segments.map(segment => segment.map((p,i)=>`${i?'L':'M'}${x(p.t).toFixed(2)},${y(p.mid).toFixed(2)}`).join(' '));
-    el('price-path').setAttribute('d',paths.join(' '));
-    el('price-area').setAttribute('d',segments.map((segment,i)=>`${paths[i]} L${x(segment.at(-1).t)},${bottom} L${x(segment[0].t)},${bottom} Z`).join(' '));
-    const last = visible.at(-1), yy = y(last.mid);
-    el('chart-last').innerHTML = `<line x1="${x(last.t)}" x2="${right}" y1="${yy}" y2="${yy}" stroke="#00dcaa" stroke-dasharray="3 4"/><circle cx="${x(last.t)}" cy="${yy}" r="3.5" fill="#00dcaa"/><rect x="${right+4}" y="${yy-10}" width="72" height="20" fill="#00dcaa"/><text x="${right+40}" y="${yy+4}" text-anchor="middle">${last.mid.toFixed(5)}</text>`;
-    const change = (last.mid-visible[0].mid)*10000;
-    el('price-change').textContent = `${change>=0?'+':''}${change.toFixed(1)} pips · observed window`;
-    el('price-change').className = change>0?'positive':change<0?'negative':'';
-    el('window-range').textContent = `LOW ${low.toFixed(5)} / HIGH ${high.toFixed(5)}`;
-    el('chart-coverage').textContent = `${visible.length} observations · ${Math.round((end-visible[0].t)/1000)}s collected / ${seconds/60}m window`;
-    el('chart-description').textContent = `Simulated EUR/USD. ${visible.length} observations. Low ${low.toFixed(5)}, high ${high.toFixed(5)}, latest ${last.mid.toFixed(5)}. Gaps mean missing observations.`;
-    if(inspection !== null) inspect(inspection);
+    el('chart-grid').innerHTML=grid;
+    el('chart-candles').innerHTML=candles.map(c=>{
+      const xx=center(c), yy=Math.min(y(c.open),y(c.close)), hh=Math.max(1,Math.abs(y(c.open)-y(c.close)));
+      return `<g class="candle ${c.close>=c.open?'up':'down'}"><line x1="${xx}" x2="${xx}" y1="${y(c.high)}" y2="${y(c.low)}"/><rect x="${xx-bodyWidth/2}" y="${yy}" width="${bodyWidth}" height="${hh}"/></g>`;
+    }).join('');
+    // The ten-candle average restarts after a missing bucket or missing source observation.
+    const all=candlesFor(points), averages=[]; let run=[];
+    for(const c of all) {
+      if(run.length && (c.t-run.at(-1).t>interval*1000 || run.at(-1).count<interval)) run=[];
+      run.push(c); run=run.slice(-10);
+      if(c.t>=start && run.length===10) averages.push({t:c.t+interval*500,value:run.reduce((s,p)=>s+p.close,0)/10});
+    }
+    const averagePath=averages.map((p,i)=>`${i&&p.t-averages[i-1].t<=interval*1000?'L':'M'}${x(p.t)},${y(p.value)}`).join(' ');
+    el('price-path').setAttribute('d',showAverage?averagePath:'');
+    el('chart-average-key').textContent=showAverage?(averages.length?'━ SMA 10':'SMA 10 · collecting'):'SMA 10 off';
+    const yy=y(latest.mid);
+    el('chart-last').innerHTML=`<line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}" stroke="#719ac9" stroke-dasharray="2 4"/><rect x="${right}" y="${yy-9}" width="68" height="18" fill="#e6effb" stroke="#2d78d3"/><text x="${right+4}" y="${yy+4}">${latest.mid.toFixed(5)}</text>`;
+    geometry={candles,x:center,y};
+    const change=(latest.mid-visible[0].mid)*10000;
+    el('price-change').textContent=`${change>=0?'+':''}${change.toFixed(1)} pips · observed window`;
+    el('price-change').className=change>0?'positive':change<0?'negative':'';
+    el('chart-range').textContent=`${utc(visible[0].t)} – ${utc(latest.t)} UTC · ${((high-low)*10000).toFixed(1)} pip range`;
+    el('window-range').textContent=`${interval}-second candles · ${candles.length} bars · last bar forming`;
+    el('chart-coverage').textContent=`${visible.length} source observations · simulated`;
+    el('chart-description').textContent=`Simulated EUR/USD, ${interval}-second OHLC candles from ${visible.length} observed prices. Low ${low.toFixed(5)}, high ${high.toFixed(5)}, latest ${latest.mid.toFixed(5)}. Hollow candles rise, filled candles fall. Last candle is forming.`;
+    // Overview uses only collected history, with the selected trailing window highlighted.
+    const overview=el('chart-overview'), first=points[0].t, span=Math.max(300000,latest.t-first);
+    const ox=t=>4+(t-(latest.t-span))/span*992, oy=v=>35-(v-Math.min(...points.map(p=>p.mid)))/Math.max(.000001,Math.max(...points.map(p=>p.mid))-Math.min(...points.map(p=>p.mid)))*28;
+    const overviewPath=points.map((p,i)=>`${i?'L':'M'}${ox(p.t)},${oy(p.mid)}`).join(' ');
+    overview.innerHTML=`<path d="${overviewPath} L${ox(latest.t)},40 L${ox(first)},40 Z" fill="#ccd7e5"/><path d="${overviewPath}" fill="none" stroke="#94a9c3"/><rect x="${4+(1-seconds*1000/span)*992}" y="1" width="${seconds*1000/span*992}" height="38" fill="#3576ca0d" stroke="#365d8d"/>`;
+    if(inspection!==null) inspect(inspection);
   }
   function status() {
-    const stale = received && (!connected || Date.now()-received>3500);
-    el('chart-status').textContent = !received ? 'Waiting for prices' : stale ? 'Stream paused · last price held' : 'Updating every second · demo';
-    el('chart-status').className = stale ? 'stale' : '';
+    const stale=received&&(!connected||Date.now()-received>3500);
+    el('chart-status').textContent=!received?'Waiting for prices':stale?'Stream paused · last price held':'● Updating · simulated';
+    el('chart-status').className=stale?'stale':'';
   }
   function inspect(index) {
     if(!geometry) return;
-    const {visible,x,y} = geometry;
-    inspection = Math.max(0,Math.min(index,visible.length-1));
-    const p = visible[inspection];
-    el('chart-crosshair').innerHTML = `<line x1="${x(p.t)}" x2="${x(p.t)}" y1="${top}" y2="${bottom}" stroke="#91aaaf" stroke-dasharray="3 4"/><circle cx="${x(p.t)}" cy="${y(p.mid)}" r="4" fill="#091417" stroke="#e0ebec"/>`;
-    el('chart-crosshair').removeAttribute('hidden');
-    el('chart-tooltip').hidden = false;
-    el('chart-tooltip').textContent = `${utc(p.t)} UTC · MID ${p.mid.toFixed(5)}\nBID ${p.bid.toFixed(5)} / ASK ${p.ask.toFixed(5)}`;
+    const {candles,x,y}=geometry;
+    inspection=Math.max(0,Math.min(index,candles.length-1));
+    const c=candles[inspection], xx=x(c), yy=y(c.close);
+    el('chart-crosshair').innerHTML=`<line x1="${xx}" x2="${xx}" y1="${top}" y2="${bottom}" stroke="#71839b" stroke-dasharray="3 3"/><line x1="${left}" x2="${right}" y1="${yy}" y2="${yy}" stroke="#71839b" stroke-dasharray="3 3"/>`;
+    el('chart-crosshair').removeAttribute('hidden'); el('chart-tooltip').hidden=false;
+    el('chart-tooltip').textContent=`${utc(c.t)} UTC · ${interval}s${inspection===candles.length-1?' · forming':''}\nO ${c.open.toFixed(5)}  H ${c.high.toFixed(5)}\nL ${c.low.toFixed(5)}  C ${c.close.toFixed(5)}\n${c.count} observations · BID ${c.last.bid.toFixed(5)} / ASK ${c.last.ask.toFixed(5)}`;
   }
-  function clearInspection() { inspection=null; el('chart-crosshair').setAttribute('hidden',''); el('chart-tooltip').hidden=true; }
-  svg.addEventListener('pointermove', event => {
+  function clearInspection(){inspection=null;el('chart-crosshair').setAttribute('hidden','');el('chart-tooltip').hidden=true;}
+  svg.addEventListener('pointermove',event=>{
     if(!geometry) return;
-    const pt=svg.createSVGPoint(); pt.x=event.clientX; pt.y=event.clientY;
+    const pt=svg.createSVGPoint();pt.x=event.clientX;pt.y=event.clientY;
     const xx=pt.matrixTransform(svg.getScreenCTM().inverse()).x;
-    const index=geometry.visible.reduce((best,p,i)=>Math.abs(geometry.x(p.t)-xx)<Math.abs(geometry.x(geometry.visible[best].t)-xx)?i:best,0);
-    inspect(index);
+    inspect(geometry.candles.reduce((best,c,i)=>Math.abs(geometry.x(c)-xx)<Math.abs(geometry.x(geometry.candles[best])-xx)?i:best,0));
   });
-  svg.addEventListener('pointerleave',clearInspection);
-  svg.addEventListener('blur',clearInspection);
-  svg.addEventListener('keydown', event => {
-    if(!geometry || !['ArrowLeft','ArrowRight','Escape'].includes(event.key)) return;
-    event.preventDefault();
-    if(event.key==='Escape') return clearInspection();
-    inspect((inspection ?? geometry.visible.length-1)+(event.key==='ArrowLeft'?-1:1));
+  svg.addEventListener('pointerleave',clearInspection);svg.addEventListener('blur',clearInspection);
+  svg.addEventListener('keydown',event=>{
+    if(!geometry||!['ArrowLeft','ArrowRight','Escape'].includes(event.key))return;
+    event.preventDefault();if(event.key==='Escape')return clearInspection();
+    inspect((inspection??geometry.candles.length-1)+(event.key==='ArrowLeft'?-1:1));
   });
-  document.querySelectorAll('[data-window]').forEach(button => button.addEventListener('click',()=>{
-    seconds=Number(button.dataset.window); clearInspection();
-    document.querySelectorAll('[data-window]').forEach(b=>b.setAttribute('aria-pressed',String(b===button))); draw();
+  document.querySelectorAll('[data-window]').forEach(button=>button.addEventListener('click',()=>{
+    seconds=Number(button.dataset.window);clearInspection();
+    document.querySelectorAll('[data-window]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));draw();
   }));
-  window.SamFxChart = {
-    update(snapshot, history=[]) {
-      const incoming=[...history,snapshot].filter(Boolean);
+  document.querySelectorAll('[data-interval]').forEach(button=>button.addEventListener('click',()=>{
+    interval=Number(button.dataset.interval);clearInspection();
+    document.querySelectorAll('[data-interval]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));draw();
+  }));
+  el('chart-average').addEventListener('click',()=>{showAverage=!showAverage;el('chart-average').setAttribute('aria-pressed',String(showAverage));draw();});
+  window.SamFxChart={
+    update(snapshot,history=[]){
       const merged=new Map(points.map(p=>[p.t,p]));
-      for(const p of incoming) {
+      for(const p of [...history,snapshot].filter(Boolean)){
         const t=Date.parse(p.timestamp);
-        if(Number.isFinite(t) && [p.mid,p.bid,p.ask].every(Number.isFinite)) merged.set(t,{t,mid:p.mid,bid:p.bid,ask:p.ask});
+        if(Number.isFinite(t)&&[p.mid,p.bid,p.ask].every(Number.isFinite))merged.set(t,{t,mid:p.mid,bid:p.bid,ask:p.ask});
       }
-      const sorted=[...merged.values()].sort((a,b)=>a.t-b.t);
-      if(!sorted.length) return;
-      if(!points.length || sorted.at(-1).t>points.at(-1).t) received=Date.now();
-      points=sorted.filter(p=>p.t>=sorted.at(-1).t-300000).slice(-301);
-      connected=true; draw(); status();
+      const sorted=[...merged.values()].sort((a,b)=>a.t-b.t);if(!sorted.length)return;
+      if(!points.length||sorted.at(-1).t>points.at(-1).t)received=Date.now();
+      points=sorted.filter(p=>p.t>=sorted.at(-1).t-300000).slice(-301);connected=true;draw();status();
     },
-    disconnect() { connected=false; status(); }
+    disconnect(){connected=false;status();}
   };
-  new ResizeObserver(draw).observe(svg);
-  setInterval(status,1000);
+  new ResizeObserver(draw).observe(svg);setInterval(status,1000);
 })();
