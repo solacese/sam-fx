@@ -43,7 +43,7 @@ function render(s) {
   for(const [id, value] of [['market-status',s.market_condition], ['service-status',s.service_condition]]) { $(id).textContent = value; $(id).className = value.toLowerCase(); }
   $('incident-count').textContent = s.incidents.filter(i => ['OPEN','ACKNOWLEDGED'].includes(i.status)).length;
   $('investigations').textContent = `${s.pending_investigations} pending · ${s.completed_investigations} done · ${s.failed_investigations} failed`;
-  $('scenario-status').textContent = s.running ? `Running ${s.scenario.replaceAll('_',' ')} · normal conditions resume after ${['tokyo_burst','tcp_pressure','queue_pressure','market_only','aiops_unknown'].includes(s.scenario)?24:12} observations` : 'Normal stream running · recovery requires five consecutive healthy observations.';
+  $('scenario-status').textContent = s.running ? 'Scenario running · auto-resets after 24 observations' : 'Normal stream running';
   document.querySelectorAll('[data-scenario]').forEach(b => b.setAttribute('aria-pressed', String(s.running && s.scenario === b.dataset.scenario)));
   const p = s.snapshot;
   if(p) {
@@ -52,7 +52,7 @@ function render(s) {
     $('spread').textContent = ((p.ask-p.bid)*10000).toFixed(1) + ' pips';
     if(lastTime !== p.timestamp) { lastTime = p.timestamp; $('mid').classList.remove('update'); void $('mid').offsetWidth; $('mid').classList.add('update'); }
     window.SamFxChart.update(p, s.price_history || []);
-    $('stats').innerHTML = [['Volatility','volatility'],['Spread','spread'],['Quote rate','quote_rate'],['Latency','solace_latency'],['Lag','consumer_lag']].map(([label,key]) => `<div class="${p.zscores[key]>=3?'elevated':''}">${label}<strong>${p.zscores[key].toFixed(1)}σ</strong></div>`).join('');
+    $('stats').innerHTML = [['Volatility','volatility'],['Spread','spread'],['Quote rate','quote_rate']].map(([label,key]) => `<div class="${p.zscores[key]>=3?'elevated':''}">${label}<strong>${p.zscores[key].toFixed(1)}σ</strong></div>`).join('');
   }
   $('services').innerHTML = s.services.map(h => {
     const o = h.observation, unknown = h.status === 'UNKNOWN', age = Math.max(0,(Date.parse(h.observed_at)-Date.parse(o.timestamp))/1000);

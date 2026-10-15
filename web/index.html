@@ -1,19 +1,23 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sam-fx · operations</title><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/chart.js" defer></script><script src="/assets/aiops.js" defer></script><script src="/assets/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sam-fx · AIOps</title><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/chart.js" defer></script><script src="/assets/aiops.js" defer></script><script src="/assets/app.js" defer></script></head>
 <body>
-<header><a href="/" class="brand">sam-fx</a><span class="desk">SAM FOR FX AIOPS</span><span class="connection" id="connection">Connecting…</span><time id="clock">—</time><a class="button export" href="/api/handover" download>↓ Handover</a></header>
+<header><a href="/" class="brand">sam-fx</a><span class="desk">FX AIOPS</span><span class="connection" id="connection">Connecting…</span><time id="clock">—</time></header>
 <main>
-<div class="summary"><section class="confidence-summary"><span class="label">FX DATA CONFIDENCE</span><strong id="data-confidence">COLLECTING</strong><small id="confidence-detail">TYO → NYC · EUR/USD</small></section><section><span class="label">MARKET</span><strong id="market-status">—</strong><small>Market statistics</small></section><section><span class="label">DELIVERY</span><strong id="service-status">UNKNOWN</strong><small>Two regional paths</small></section><section><span class="label">ACTIVE INCIDENTS</span><strong id="incident-count">0</strong><small id="investigations">No pending explanations</small></section></div>
-<section class="scenarios panel" aria-label="Demo controls"><div class="scenario-heading"><h2>Demo controls</h2><span class="label">INTRODUCE A SCENARIO</span></div><div class="buttons"><button data-scenario="tokyo_burst" class="primary-scenario">▶ Tokyo → New York</button><button data-scenario="tcp_pressure">TCP pressure</button><button data-scenario="queue_pressure">Queue build-up</button><button data-scenario="market_only">Market move · healthy path</button><button data-scenario="aiops_unknown">Missing telemetry</button><button id="recover" class="quiet">↺ Restore normal</button></div><p id="scenario-status" role="status">Scenarios run for 12 observations, then recover automatically.</p></section>
+<div class="page-heading"><div><h1>Can I trust this FX data?</h1><p>Tokyo → New York · EUR/USD</p></div><div class="confidence-summary"><strong id="data-confidence">COLLECTING</strong><small id="confidence-detail">Waiting for evidence</small></div></div>
+<section class="scenarios" aria-label="Demo controls"><div class="scenario-main"><button data-scenario="tokyo_burst" class="primary-scenario">▶ Run Tokyo → New York</button><button id="recover" class="quiet">Reset</button><span id="scenario-status" role="status">Normal stream running</span></div><details class="other-scenarios"><summary>Other scenarios</summary><div class="buttons"><button data-scenario="tcp_pressure">TCP pressure</button><button data-scenario="queue_pressure">Queue build-up</button><button data-scenario="market_only">Market move · healthy path</button><button data-scenario="aiops_unknown">Missing telemetry</button></div></details></section>
 <div class="workspace">
 <aside class="feed-column" aria-label="Three simulated source feeds">
 <section class="panel feed-box"><div class="feed-title"><span class="feed-number">01</span><h2>Market data</h2><span class="tag">SIM</span></div><div class="feed-subtitle">Tokyo source · EUR/USD</div><div id="market-feed"></div><div class="feed-foot" id="market-feed-age">Waiting for observations</div></section>
 <section class="panel feed-box"><div class="feed-title"><span class="feed-number">02</span><h2>Corvil Analytics</h2><span class="tag">SIM</span></div><div class="feed-subtitle">Packet-derived path evidence</div><div id="corvil-feed"></div><div class="feed-foot" id="corvil-feed-age">Waiting for observations</div></section>
 <section class="panel feed-box semp-feed"><div class="feed-title"><span class="feed-number">03</span><h2>Solace SEMP v1</h2><span class="tag">SIM</span></div><div class="feed-subtitle">TCP connection + Guaranteed queue</div><div id="semp-feed"></div><div class="feed-foot" id="semp-feed-age">Waiting for observations</div></section>
 </aside>
-<div class="market-column">
-<section class="panel graph-panel"><div class="section-head"><h2>Explanation graph</h2><span id="graph-mode">Awaiting investigation</span></div><div id="explanation-graph" class="explanation-graph"><p>Run Tokyo → New York to see the observed evidence and the agent’s suspected propagation path.</p></div><div class="graph-note">Grey: observed sequence · amber dashed: hypothesis · simulated topology</div></section>
+
+<div class="main-column">
+<section class="panel investigation"><div class="section-head"><h2>Brief for Greg</h2><span id="explanation-mode">Awaiting evidence</span></div><div id="greg-brief" class="greg-brief"><p>Run the scenario to check the three feeds and investigate a change in data confidence.</p></div>
+<div class="graph-panel"><div class="section-head"><h2>What happened</h2><span id="graph-mode">Awaiting investigation</span></div><div id="explanation-graph" class="explanation-graph"><p>The investigation connects market activity, TCP pressure, queue depth and data freshness.</p></div><div class="graph-note">Grey line: observed sequence · amber dashed line: hypothesis</div></div>
+</section>
+<details class="panel secondary-panel"><summary>EUR/USD chart <span>Simulated prices · updates every second</span></summary>
 <section class="panel price-panel" aria-labelledby="price-title">
 <div class="section-head"><h1 id="price-title">EUR/USD <span class="tag">SIMULATED</span></h1><span id="chart-status">Waiting for prices</span></div>
 <div class="price-header"><div class="last-price"><span class="label">MID PRICE</span><strong id="mid">—</strong><span id="price-change">Collecting observations</span></div><div class="quotes"><div><span class="label">BID</span><strong id="bid">—</strong></div><div><span class="label">ASK</span><strong id="ask">—</strong></div><div><span class="label">SPREAD</span><strong id="spread">—</strong></div></div></div>
@@ -25,15 +29,19 @@
 <svg id="chart-overview" viewBox="0 0 1000 42" preserveAspectRatio="none" aria-label="Collected price history and selected trailing window" role="img"></svg>
 </div>
 <div class="chart-footer"><span id="window-range">Waiting for first observation</span><span id="chart-coverage">1-second updates · simulated source</span></div>
-<div class="signals"><div class="signals-title"><span class="label">ANOMALY SIGNALS</span><small>Above recent baseline · capped at 6σ</small></div><div id="stats"></div></div>
+<div class="signals"><div class="signals-title"><span class="label">MARKET SIGNALS</span><small>Above recent baseline · capped at 6σ</small></div><div id="stats"></div></div>
 </section>
 
-<section class="panel services"><div class="section-head"><h2>Regional delivery</h2><span>Demo topology</span></div><div class="table-scroll"><table><thead><tr><th>Consumer / region</th><th>Health</th><th>Quote age</th><th>In → out /s</th><th>p99 latency</th><th>Drops / gaps</th><th>Telemetry age</th></tr></thead><tbody id="services"></tbody></table></div><div class="table-note">Interval drops / gaps · missing telemetry is unknown, never healthy.</div></section>
-<section class="panel incident-panel"><div class="section-head"><h2>Incident journal</h2><span id="journal-count">0 records</span></div><div id="incidents" class="incident-list"></div></section>
-</div>
-<aside class="panel investigation"><div class="section-head"><h2>Brief for Greg</h2><span id="explanation-mode">Prepared rules</span></div><div id="greg-brief" class="greg-brief"><h3>Can I trust this FX data?</h3><p>Run a scenario. The detector checks the three feeds before waking the investigator.</p></div><div class="chat"><h3>Explore the evidence <span class="tag">3 QUESTIONS</span></h3><div class="buttons"><button data-question="changed">What changed?</button><button data-question="impact">What is affected?</button><button data-question="next">What should I check?</button></div><p id="chat-answer" aria-live="polite">Select a question to read the selected investigation evidence.</p></div><div class="evidence-heading label">EVIDENCE & NEXT CHECKS</div><div id="evidence" class="evidence"></div></aside>
-</div>
 
-<details class="panel activity"><summary>Event trail <span id="timing">Sampling active</span></summary><ol id="timeline"></ol></details>
-<footer><span>SIMULATION · Local incident journal · synthetic market and telemetry</span><span>Simulated telemetry · read-only investigation</span></footer><p class="error" id="error" role="alert" hidden></p>
+</details>
+<details class="panel secondary-panel"><summary>Investigation details & history <span id="journal-count">0 records</span></summary>
+<div class="chat"><h3>Ask about this investigation</h3><div class="buttons"><button data-question="changed">What changed?</button><button data-question="impact">What is affected?</button><button data-question="next">What should I check?</button></div><p id="chat-answer" aria-live="polite">Choose a question to explore the evidence.</p></div><div id="evidence" class="evidence"></div>
+<section class="panel services"><div class="section-head"><h2>Regional delivery</h2><span>Demo topology</span></div><div class="table-scroll"><table><thead><tr><th>Consumer / region</th><th>Health</th><th>Quote age</th><th>In → out /s</th><th>p99 latency</th><th>Drops / gaps</th><th>Telemetry age</th></tr></thead><tbody id="services"></tbody></table></div><div class="table-note">Interval drops / gaps · missing telemetry is unknown, never healthy.</div></section>
+<section class="panel incident-panel"><div class="section-head"><h2>Incident journal</h2></div><div id="incidents" class="incident-list"></div></section>
+
+<details class="activity"><summary>Event trail <span id="timing">Sampling active</span></summary><ol id="timeline"></ol></details>
+<div class="diagnostics"><span>Market <strong id="market-status">—</strong></span><span>Delivery <strong id="service-status">UNKNOWN</strong></span><span>Active incidents <strong id="incident-count">0</strong></span><span id="investigations">No pending explanations</span><a class="button export" href="/api/handover" download>↓ Export handover</a></div>
+</details>
+</div></div>
+<footer>Simulated Market, Corvil and SEMP v1 feeds · read-only investigation</footer><p class="error" id="error" role="alert" hidden></p>
 </main></body></html>

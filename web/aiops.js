@@ -6,6 +6,7 @@
   const rows=items=>`<dl class="feed-metrics">${items.map(([label,value,tone])=>`<div><dt>${esc(label)}</dt><dd class="${tone||''}">${esc(value)}</dd></div>`).join('')}</dl>`;
   const n=(v,d=0)=>typeof v==='number'?v.toLocaleString('en-GB',{minimumFractionDigits:d,maximumFractionDigits:d}):String(v??'—');
   const warning=v=>Number(v)>0?'metric-warn':'';
+  const extra=(id,items)=>`<details${el(id).querySelector('details')?.open?' open':''}><summary>More metrics</summary>${rows(items)}</details>`;
   const labels={WITHIN_LIMITS:'WITHIN LIMITS',WATCH:'WATCH',AT_RISK:'AT RISK',IMPAIRED:'IMPAIRED',UNKNOWN:'UNKNOWN'};
   function graph(a,incident){
     if(!a?.graph){
@@ -27,26 +28,32 @@
     if(data){
       el('data-confidence').textContent=labels[data.status]||data.status;
       el('data-confidence').className=data.status.toLowerCase();
-      el('confidence-detail').textContent=`${data.path_id} · technical score ${data.technical_score.toFixed(1)}/6 · ${data.confirmed?'confirmed':data.status==='WITHIN_LIMITS'?'observing':data.confirmation_count+'/3 confirming'}`;
+      el('confidence-detail').textContent=`${data.status==='WITHIN_LIMITS'?'Monitoring three feeds':data.confirmed?'Confirmed change':data.confirmation_count+'/3 observations'} · ${data.technical_score.toFixed(1)}/6 deviation`;
       const source=Object.fromEntries(data.sources.map(e=>[e.evidence_id,e]));
       const m=source.market.metrics,c=source.corvil_tcp.metrics,t=source.semp_tcp.metrics,q=source.semp_queue.metrics,d=source.data_quality.metrics;
       el('market-feed').innerHTML=rows([
         ['EUR/USD mid',s.snapshot?.mid.toFixed(5)],['Quotes / second',n(m.quote_rate),m.quote_rate>50?'metric-warn':''],
-        ['Spread',n(m.spread_pips,1)+' pips'],['Source quote age',n(m.source_quote_age_ms)+' ms'],['Source gaps',n(m.source_sequence_gaps)],
+        ['Spread',n(m.spread_pips,1)+' pips'],
+      ])+extra('market-feed',[
+        ['Source quote age',n(m.source_quote_age_ms)+' ms'],['Source gaps',n(m.source_sequence_gaps)],
       ]);
       el('corvil-feed').innerHTML=rows([
         ['NYC session RTT',n(c.rtt_ms,1)+' ms',c.rtt_ms>5?'metric-warn':''],
         ['Retransmissions',n(c.retransmit_pct,2)+'%',c.retransmit_pct>.5?'metric-warn':''],
-        ['Path p99',n(c.path_p99_ms)+' ms'],['Peer RTT',n(c.peer_rtt_ms,1)+' ms'],
-        ['Peer quote age',n(c.peer_quote_age_ms)+' ms'],['Capture drops',n(c.capture_drops)],
+        ['Peer RTT',n(c.peer_rtt_ms,1)+' ms'],
+      ])+extra('corvil-feed',[
+        ['Path p99',n(c.path_p99_ms)+' ms'],['Peer quote age',n(c.peer_quote_age_ms)+' ms'],['Capture drops',n(c.capture_drops)],
       ]);
-      el('semp-feed').innerHTML=`<div class="connection-id">${esc(data.connection.client_id)}<br><span>${esc(data.connection.local)} →<br>${esc(data.connection.remote)}</span></div>`+rows([
+      el('semp-feed').innerHTML=rows([
+        ['TCP blocked',n(t.blocked_pct)+'%',warning(t.blocked_pct)],
+        ['Transmit window',n(t.transmit_window_bytes)+' B',t.transmit_window_bytes===0?'metric-warn':''],
+        ['Queue depth',n(q.queue_depth)+' msgs',q.queue_depth>100?'metric-warn':''],
+      ])+extra('semp-feed',[
         ['TCP state',t.tcp_state],['SRTT',n(t.srtt_us)+' µs'],['RTT variation',n(t.rttvar_us)+' µs'],
         ['Fast / timed RTX',n(t.fast_retransmit_delta)+' / '+n(t.timed_retransmit_delta),warning(t.fast_retransmit_delta)],
-        ['Blocked',n(t.blocked_pct)+'%',warning(t.blocked_pct)],['Send buffer',n(t.send_queue_bytes)+' B',t.send_queue_bytes>10000?'metric-warn':''],
+        ['Send buffer',n(t.send_queue_bytes)+' B',t.send_queue_bytes>10000?'metric-warn':''],
         ['Receive buffer',n(t.receive_queue_bytes)+' B'],['Advertised window',n(t.advertised_window_bytes)+' B'],
-        ['Transmit window',n(t.transmit_window_bytes)+' B',t.transmit_window_bytes===0?'metric-warn':''],
-        ['Congestion window',n(t.congestion_window_bytes)+' B'],['Queue depth',n(q.queue_depth)+' msgs',q.queue_depth>100?'metric-warn':''],
+        ['Congestion window',n(t.congestion_window_bytes)+' B'],
         ['Oldest message',n(q.oldest_message_ms)+' ms'],['Unacknowledged',n(q.unacked_messages)],
         ['Ingress → egress',n(q.ingress_rate)+' → '+n(q.egress_rate)+'/s'],
       ]);
@@ -55,7 +62,7 @@
         el(prefix+'-feed-age').textContent=`SIMULATED · ${age>3?'STALE '+age+'s':new Date(item.timestamp).toLocaleTimeString('en-GB',{timeZone:'UTC'})+' UTC'}`;
         el(prefix+'-feed-age').className='feed-foot '+(age>3?'stale':'');
       }
-      el('greg-brief').innerHTML=`<div class="brief-top"><span class="label">${a?'CONFIDENCE AT EVENT':'CAN I TRUST THIS FX DATA?'}</span><span class="pill ${(a?.confidence_at_event||data.status).toLowerCase()}">${esc(labels[a?.confidence_at_event||data.status])}</span></div><p>${esc(a?.assessment||(s.pending_investigations?'Investigation running. Reading the frozen Market, Corvil and SEMP v1 evidence…':data.status==='WITHIN_LIMITS'?'Observed quality is within the demo limits. Market activity alone does not make the feed untrustworthy.':'Waiting for three abnormal observations before investigation.'))}</p>${a?`<div class="brief-next"><span class="label">NEXT CHECK</span><p>${esc(a.suggested_next_investigation)}</p></div>`:''}<div class="brief-meta">${a?esc(a.model.includes('fallback')?'Prepared fallback · no successful LLM result':a.model+' · '+(a.latency_ms/1000).toFixed(2)+'s investigation'):s.llm_enabled?'Live LLM ready · bounded investigation':'Prepared replay · LLM disabled'}</div>${a?.suspected_component?`<div class="suspect-line">Suspect: <strong>${esc(({nyc_tcp:'NYC TCP connection',nyc_queue:'NYC Guaranteed queue',tokyo_source:'Tokyo source',unknown:'Unknown'})[a.suspected_component]||a.suspected_component)}</strong><small>${esc(data.connection.local)} → ${esc(data.connection.remote)}</small></div>`:''}${a?.checks?.length?`<details${checksOpen?' open':''}><summary>${a.checks.length} source checks · simulated reads</summary><ul class="check-list">${a.checks.map(c=>`<li><span>✓ ${esc(c.source)}</span> ${esc(c.name)}</li>`).join('')}</ul></details>`:''}<div class="freshness-line">Current NYC quote age <strong class="${d.quote_age_ms>=1000?'metric-warn':''}">${n(d.quote_age_ms)} ms</strong> / 1,000 ms demo budget</div>${a?'<small class="frozen-note">Explanation is frozen at the event; feed boxes remain live.</small>':''}`;
+      el('greg-brief').innerHTML=`<div class="brief-top"><span class="label">${a?'AT THE EVENT':'CURRENT ASSESSMENT'}</span><span class="pill ${(a?.confidence_at_event||data.status).toLowerCase()}">${esc(labels[a?.confidence_at_event||data.status])}</span></div><p>${esc(a?.assessment||(s.pending_investigations?'Investigation running. Reading the frozen Market, Corvil and SEMP v1 evidence…':data.status==='WITHIN_LIMITS'?'Observed quality is within the demo limits. Market activity alone does not make the feed untrustworthy.':'Waiting for three abnormal observations before investigation.'))}</p>${a?`<div class="brief-next"><span class="label">NEXT CHECK</span><p>${esc(a.suggested_next_investigation)}</p></div>`:''}<div class="brief-meta">${a?esc(a.model.includes('fallback')?'Prepared fallback · no successful LLM result':'LLM investigation · '+(a.latency_ms/1000).toFixed(2)+'s'):s.llm_enabled?'Live LLM ready · bounded investigation':'Prepared replay · LLM disabled'}</div>${a?.suspected_component?`<div class="suspect-line">Suspect: <strong>${esc(({nyc_tcp:'NYC TCP connection',nyc_queue:'NYC Guaranteed queue',tokyo_source:'Tokyo source',unknown:'Unknown'})[a.suspected_component]||a.suspected_component)}</strong></div>`:''}${a?.checks?.length?`<details${checksOpen?' open':''}><summary>${a.checks.length} source checks</summary><div class="connection-id">${esc(data.connection.client_id)}<br>${esc(data.connection.local)} → ${esc(data.connection.remote)}</div><ul class="check-list">${a.checks.map(c=>`<li><span>✓ ${esc(c.source)}</span> ${esc(c.name)}</li>`).join('')}</ul></details>`:''}<div class="freshness-line">NYC quote age <strong class="${d.quote_age_ms>=1000?'metric-warn':''}">${n(d.quote_age_ms)} ms</strong> <span> / 1,000 ms demo limit</span></div>${a?'<small class="frozen-note">Event snapshot · feeds on the left keep updating.</small>':''}`;
     }
     graph(a,incident);
   }};
