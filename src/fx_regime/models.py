@@ -127,9 +127,67 @@ class ServiceHealth(StrictModel):
     observed_at: AwareDatetime
 
 
+class SourceEvidence(StrictModel):
+    change_offset_s: int | None = None
+    evidence_id: str
+    source: Literal["MARKET", "CORVIL", "SEMP_V1", "CONSUMER"]
+    timestamp: AwareDatetime
+    region: str
+    summary: str
+    metrics: dict[str, float | str]
+
+
+class ConfidenceState(StrictModel):
+    status: Literal["WITHIN_LIMITS", "WATCH", "AT_RISK", "IMPAIRED", "UNKNOWN"]
+    confirmed: bool = False
+    path_id: str = "TYO-NYC-FX-01"
+    scenario: str
+    timestamp: AwareDatetime
+    market_regime: str
+    technical_score: float
+    confirmation_count: int
+    reasons: list[str]
+    zscores: dict[str, float]
+    sources: list[SourceEvidence]
+    connection: dict[str, str]
+    onset: AwareDatetime | None = None
+
+
+class ExplanationNode(StrictModel):
+    change_offset_s: int | None = None
+    node_id: str
+    label: str
+    region: str
+    detail: str
+    evidence_ids: list[str]
+
+
+class ExplanationEdge(StrictModel):
+    edge_id: str
+    source: str
+    target: str
+    label: str
+    kind: Literal["hypothesis", "sequence"] = "hypothesis"
+    evidence_ids: list[str]
+
+
+class ExplanationGraph(StrictModel):
+    nodes: list[ExplanationNode]
+    edges: list[ExplanationEdge]
+
+
+class InvestigationCheck(StrictModel):
+    name: str
+    source: str
+    evidence_ids: list[str]
+    status: Literal["simulated_read"] = "simulated_read"
+
+
 class RegimeChange(StrictModel):
     schema_version: Literal["1.0"] = "1.0"
-    event: Literal["FX_REGIME_CHANGE", "FX_SERVICE_INCIDENT"] = "FX_REGIME_CHANGE"
+    event: Literal["FX_REGIME_CHANGE", "FX_SERVICE_INCIDENT", "FX_DATA_CONFIDENCE_CHANGE"] = (
+        "FX_REGIME_CHANGE"
+    )
     correlation_id: str = Field(default_factory=lambda: str(uuid4()))
     symbol: str
     timestamp: AwareDatetime
@@ -141,6 +199,7 @@ class RegimeChange(StrictModel):
     before: FeatureValues
     after: FeatureValues
     regions: dict[str, InfraStats]
+    aiops: ConfidenceState | None = None
     macro_events: list[MacroEvent] = Field(default_factory=list)
     services: list[ServiceHealth] = Field(default_factory=list)
 
@@ -163,6 +222,11 @@ class AgentAssessment(StrictModel):
     likely_cause: Cause
     suggested_next_investigation: str
     jev_decisions: list[JevDecision] = Field(default_factory=list)
+    graph: ExplanationGraph | None = None
+    checks: list[InvestigationCheck] = Field(default_factory=list)
+    confidence_at_event: str | None = None
+    suspected_component: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
     degraded: bool = False
     model: str
     latency_ms: int = Field(default=0, ge=0)
@@ -211,11 +275,18 @@ class DashboardState(StrictModel):
         "feed_loss",
         "telemetry_loss",
         "capacity",
+        "tokyo_burst",
+        "tcp_pressure",
+        "queue_pressure",
+        "market_only",
+        "aiops_unknown",
     ] = "baseline"
     workflow_stage: Literal[
         "monitoring", "triggered", "evidence_ready", "agent_running", "complete"
     ] = "monitoring"
     running: bool = False
+    aiops: ConfidenceState | None = None
+    llm_enabled: bool = False
     snapshot: FeatureSnapshot | None = None
     price_history: list[PricePoint] = Field(default_factory=list)
     last_change: RegimeChange | None = None

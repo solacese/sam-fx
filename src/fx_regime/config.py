@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     incident_store_path: str = ".runtime/incidents.sqlite3"
     investigation_timeout_seconds: float = Field(default=8.0, gt=0)
     enable_external_providers: bool = False
+    enable_jev_provider: bool = False
 
     jev_api_key: str = Field(default="", validation_alias=AliasChoices("JEV_API_KEY", "jev"))
     jev_endpoint: str = "https://api.typesafe.ai/v1/systemone"

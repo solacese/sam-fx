@@ -6,6 +6,7 @@ from typing import Any
 
 from groq import APIError, AsyncGroq
 
+from .aiops_agent import investigate, prepared_assessment
 from .models import AgentAssessment, Cause, JevDecision, RegimeChange
 
 
@@ -18,6 +19,10 @@ class GroqAgent:
 
     async def explain(self, change: RegimeChange, decisions: list[JevDecision]) -> AgentAssessment:
         self.calls += 1
+        if change.aiops:
+            return await investigate(
+                change, decisions, self.api_key, self.model, self.timeout_seconds
+            )
         if not self.api_key:
             return self._fallback(change, decisions, "deterministic-fallback")
 
@@ -100,6 +105,8 @@ class GroqAgent:
     def _fallback(
         change: RegimeChange, decisions: list[JevDecision], model: str
     ) -> AgentAssessment:
+        if change.aiops:
+            return prepared_assessment(change, decisions, model)
         choice = next((d.answer for d in decisions if d.question == "EVIDENCE_CLASS"), "UNCLEAR")
         cause = Cause(choice) if choice in Cause._value2member_map_ else Cause.UNCLEAR
         z = change.drivers

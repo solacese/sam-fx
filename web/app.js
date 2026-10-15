@@ -43,7 +43,7 @@ function render(s) {
   for(const [id, value] of [['market-status',s.market_condition], ['service-status',s.service_condition]]) { $(id).textContent = value; $(id).className = value.toLowerCase(); }
   $('incident-count').textContent = s.incidents.filter(i => ['OPEN','ACKNOWLEDGED'].includes(i.status)).length;
   $('investigations').textContent = `${s.pending_investigations} pending · ${s.completed_investigations} done · ${s.failed_investigations} failed`;
-  $('scenario-status').textContent = s.running ? `Running ${s.scenario.replaceAll('_',' ')} · normal conditions resume after 12 observations` : 'Normal stream running · recovery requires five consecutive healthy observations.';
+  $('scenario-status').textContent = s.running ? `Running ${s.scenario.replaceAll('_',' ')} · normal conditions resume after ${['tokyo_burst','tcp_pressure','queue_pressure','market_only','aiops_unknown'].includes(s.scenario)?24:12} observations` : 'Normal stream running · recovery requires five consecutive healthy observations.';
   document.querySelectorAll('[data-scenario]').forEach(b => b.setAttribute('aria-pressed', String(s.running && s.scenario === b.dataset.scenario)));
   const p = s.snapshot;
   if(p) {
@@ -74,6 +74,7 @@ function render(s) {
   $('timeline').innerHTML = s.timeline.map(e=>`<li>${time(e.timestamp)} · ${esc(e.label)}</li>`).join('');
   $('timing').textContent = `${s.observations} observations · ${s.explanation_latency_ms == null ? 'No completed explanation' : s.explanation_latency_ms+' ms latest worker time (excludes detection/queue)'}`;
   if(window.SamFxDemo) { $('timing').textContent = `${s.observations} replay observations · no live latency measurement`; if(!window.SamFxDemo.storageAvailable) error('Browser storage is unavailable. Export handover to keep this session.'); }
+  window.SamFxAiops.render(s, a, incident);
   renderChat();
 }
 if(window.SamFxDemo) {
@@ -82,7 +83,7 @@ if(window.SamFxDemo) {
 } else {
 fetch('/api/runbooks').then(r=>r.json()).then(data=>{ books=data; if(state)render(state); }).catch(()=>error('Runbooks could not be loaded.'));
 const stream = new EventSource('/api/events');
-stream.onmessage = event => { $('connection').textContent='● DEMO STREAM'; render(JSON.parse(event.data)); };
+stream.onmessage = event => { $('connection').textContent=JSON.parse(event.data).llm_enabled?'● SIM FEEDS · LIVE LLM':'● SIM FEEDS · PREPARED'; render(JSON.parse(event.data)); };
 stream.onerror = () => { window.SamFxChart.disconnect(); $('connection').textContent='○ RECONNECTING'; $('service-status').textContent='UNKNOWN'; $('service-status').className='unknown'; };
 
 }

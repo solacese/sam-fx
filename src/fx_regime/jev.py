@@ -116,7 +116,11 @@ class JevClient:
         infrastructure = max(z.solace_latency, z.consumer_lag)
         if any(s.status in {"DEGRADED", "UNAVAILABLE"} for s in change.services):
             infrastructure = max(infrastructure, 3)
-        missing = any(s.status == "UNKNOWN" for s in change.services)
+        if change.aiops and change.aiops.status in {"AT_RISK", "IMPAIRED"}:
+            infrastructure = max(infrastructure, 3)
+        missing = any(s.status == "UNKNOWN" for s in change.services) or bool(
+            change.aiops and change.aiops.status == "UNKNOWN"
+        )
         if missing and infrastructure < 3:
             cause = Cause.UNCLEAR
         elif market >= 3 and infrastructure < 2:

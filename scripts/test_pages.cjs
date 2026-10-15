@@ -36,7 +36,25 @@ function load(saved={}) {
     assert.equal(demo.state.incidents.length,2);
     assert.notEqual(demo.state.incidents[0].incident_id,id);
   }
+  for(const scenario of ['tokyo_burst','tcp_pressure','queue_pressure','market_only','aiops_unknown']) {
+    const demo=load(); await demo.api.post('/api/scenarios/'+scenario);
+    for(let i=0;i<10;i++) demo.tick();
+    assert.equal(demo.state.llm_enabled,false,'Pages must never enable model calls');
+    if(scenario==='market_only') {
+      assert.equal(demo.state.aiops.status,'WITHIN_LIMITS');
+      assert.equal(demo.state.assessment,null);
+    } else {
+      assert.equal(demo.state.incidents.length,1);
+      assert.equal(demo.state.assessment.graph.nodes.length,4);
+      assert.equal(demo.state.assessment.checks.length,3);
+      assert.equal(demo.state.assessment.model,'deterministic-fallback');
+      if(scenario==='aiops_unknown') assert.equal(demo.state.assessment.graph.edges.length,0);
+      await demo.api.post('/api/recover');
+      for(let i=0;i<5;i++)demo.tick();
+      assert.equal(demo.state.incidents[0].status,'RECOVERED');
+    }
+  }
   const html=fs.readFileSync('dist/pages/index.html','utf8');
   assert(!html.includes('/assets/') && !html.includes('/api/'));
-  console.log('Pages checks passed: five scenarios, prepared causes, lifecycle, persistence, distinct IDs, relative assets.');
+  console.log('Pages checks passed: five AIOps cases, five legacy scenarios, prepared causes, lifecycle, persistence, distinct IDs, relative assets.');
 })().catch(e=>{console.error(e);process.exit(1);});

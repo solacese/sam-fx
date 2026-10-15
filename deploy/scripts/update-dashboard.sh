@@ -20,7 +20,8 @@ patch={'spec':{'strategy':{'type':'Recreate','rollingUpdate':None},'template':{'
     'volumes':[{'name':'incident-journal','persistentVolumeClaim':{'claimName':'fx-incident-journal'}}],
     'containers':[{'name':'app','image':os.environ['FX_IMAGE'],
         'env':[{'name':'INCIDENT_STORE_PATH','value':'/var/lib/fx-regime/incidents.sqlite3'},
-               {'name':'ENABLE_EXTERNAL_PROVIDERS','value':'false'}],
+               {'name':'ENABLE_EXTERNAL_PROVIDERS','value':os.environ.get('FX_ENABLE_LLM','false')},
+               {'name':'ENABLE_JEV_PROVIDER','value':'false'}],
         'volumeMounts':[{'name':'incident-journal','mountPath':'/var/lib/fx-regime'}]}]
 }}}}
 Path('.generated/fx-regime-update.json').write_text(json.dumps(patch))
@@ -28,5 +29,5 @@ PY
 kubectl --context "$CTX" apply -f deploy/k8s/base/incident-journal.yaml
 kubectl --context "$CTX" -n "$NS" patch deployment fx-regime --type strategic --patch-file .generated/fx-regime-update.json
 kubectl --context "$CTX" -n "$NS" rollout status deployment/fx-regime --timeout=5m
-curl --fail --silent --show-error --max-time 20 https://fx.sol-se-emea.com/healthz
+curl --fail --silent --show-error --max-time 20 --retry 5 --retry-delay 2 --retry-all-errors https://fx.sol-se-emea.com/healthz
 printf '\nDashboard rollout complete. Existing provider secrets and broker settings retained.\n'

@@ -8,6 +8,7 @@ import shutil
 from pathlib import Path
 
 from fx_regime.agent import GroqAgent
+from fx_regime.aiops import AIOPS_SCENARIOS
 from fx_regime.detector import RegimeDetector
 from fx_regime.jev import JevClient
 from fx_regime.operations import RUNBOOKS
@@ -18,13 +19,19 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "dist" / "pages"
 
 
-async def clip(scenario: str) -> list[dict[str, object]]:
+async def clip(scenario: str, *, legacy: bool = False) -> list[dict[str, object]]:
     engine = ScenarioEngine(
         RegimeDetector(), JevClient(""), GroqAgent("", "prepared"), SolaceBus(""), tick_seconds=0
     )
+    engine._topology_aiops = scenario in AIOPS_SCENARIOS or (scenario == "baseline" and not legacy)
     frames = []
-    for i in range(30 if scenario == "baseline" else 24):
-        active = scenario != "baseline" and i < 12
+    for i in range(30 if scenario == "baseline" else 32):
+        active = scenario != "baseline" and i < (
+            24
+            if scenario
+            in {"tokyo_burst", "tcp_pressure", "queue_pressure", "market_only", "aiops_unknown"}
+            else 12
+        )
         engine.state.scenario = scenario if active else "baseline"
         engine.state.running = active
         await engine._sample(scenario if active else "baseline", i)
@@ -36,13 +43,26 @@ async def clip(scenario: str) -> list[dict[str, object]]:
 
 async def build() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    scenarios = ["baseline", "market", "infrastructure", "feed_loss", "telemetry_loss", "capacity"]
+    scenarios = [
+        "baseline",
+        "market",
+        "infrastructure",
+        "feed_loss",
+        "telemetry_loss",
+        "capacity",
+        "tokyo_burst",
+        "tcp_pressure",
+        "queue_pressure",
+        "market_only",
+        "aiops_unknown",
+    ]
     clips = {name: await clip(name) for name in scenarios}
+    clips["legacy_baseline"] = await clip("baseline", legacy=True)
     data = {"version": 1, "runbooks": RUNBOOKS, "clips": clips}
     (OUTPUT / "demo-data.js").write_text(
         "window.SamFxFixtures=" + json.dumps(data, separators=(",", ":")) + ";\n"
     )
-    for name in ("app.js", "chart.js", "styles.css", "demo.js"):
+    for name in ("app.js", "chart.js", "aiops.js", "styles.css", "demo.js"):
         shutil.copy2(ROOT / "web" / name, OUTPUT / name)
     html = (ROOT / "web" / "index.html").read_text()
     html = html.replace('href="/"', 'href="./"').replace("/assets/", "./")

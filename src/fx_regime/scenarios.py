@@ -8,6 +8,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 
 from .agent import GroqAgent
+from .aiops import AIOPS_SCENARIOS, ConfidenceMonitor
 from .detector import RegimeDetector
 from .jev import JevClient
 from .models import (
@@ -18,6 +19,7 @@ from .models import (
     PricePoint,
     Regime,
     RegimeChange,
+    ServiceHealth,
     ServiceObservation,
     TimelineEvent,
 )
@@ -26,7 +28,7 @@ from .solace import SolaceBus
 from .store import IncidentStore
 
 StateListener = Callable[[DashboardState], Awaitable[None]]
-SCENARIOS = {
+SCENARIOS = AIOPS_SCENARIOS | {
     "volatile",
     "spread",
     "market",
@@ -56,7 +58,12 @@ class ScenarioEngine:
         self.store = store or IncidentStore()
         self.investigation_timeout = investigation_timeout
         self.monitor = ServiceMonitor()
-        self.state = DashboardState(incidents=self.store.incidents())
+        self.confidence = ConfidenceMonitor()
+        self._aiops_triggered = False
+        self._topology_aiops = True
+        self.state = DashboardState(
+            incidents=self.store.incidents(), llm_enabled=bool(agent.api_key)
+        )
         self._listeners: set[StateListener] = set()
         self._task: asyncio.Task[None] | None = None
         self._live_task: asyncio.Task[None] | None = None
@@ -118,7 +125,23 @@ class ScenarioEngine:
             self._task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._task
-        # Keep incidents and service confirmation across scenario switches.
+        topology_aiops = scenario in AIOPS_SCENARIOS
+        if topology_aiops != self._topology_aiops:
+            self.monitor = ServiceMonitor()
+        self._topology_aiops = topology_aiops
+        if scenario in AIOPS_SCENARIOS:
+            self.confidence = ConfidenceMonitor()
+            self._aiops_triggered = False
+            for item in self.store.incidents():
+                if item.runbook == "aiops" and item.status in {"OPEN", "ACKNOWLEDGED"}:
+                    item.status = "RESOLVED"
+                    item.updated_at = datetime.now(UTC)
+                    item.audit.append(
+                        f"{item.updated_at.isoformat()} Demo scenario replaced; "
+                        "prior synthetic episode closed, not a measured recovery."
+                    )
+                    self.store.save(item)
+        # Keep incidents and service confirmation across legacy scenario switches.
         self._prewarm_baseline()
         self.state.scenario = scenario  # type: ignore[assignment]
         self.state.running = True
@@ -143,7 +166,7 @@ class ScenarioEngine:
 
     async def _run(self, scenario: str) -> None:
         try:
-            for offset in range(12):
+            for offset in range(24 if scenario in AIOPS_SCENARIOS else 12):
                 await asyncio.sleep(self.tick_seconds)
                 await self._sample(scenario, offset)
         finally:
@@ -155,19 +178,27 @@ class ScenarioEngine:
         timestamp = max(now, self._clock + timedelta(seconds=1))
         self._clock = timestamp
         values = self._normal_values()
-        market = scenario in {"volatile", "spread", "market", "capacity"}
+        market = scenario in {
+            "volatile",
+            "spread",
+            "market",
+            "capacity",
+            "tokyo_burst",
+            "market_only",
+        }
         infrastructure = scenario in {"infrastructure", "capacity"}
-        if scenario in {"volatile", "market", "capacity"}:
+        if scenario in {"volatile", "market", "capacity", "tokyo_burst", "market_only"}:
             values.realized_volatility = 0.00022
-        if scenario in {"spread", "market", "capacity"}:
+        if scenario in {"spread", "market", "capacity", "tokyo_burst", "market_only"}:
             values.spread_pips = 5.5
-        if scenario in {"market", "capacity"}:
-            values.quote_rate = 80
+        if scenario in {"market", "capacity", "tokyo_burst", "market_only"}:
+            values.quote_rate = 180 if scenario in {"tokyo_burst", "market_only"} else 80
         if infrastructure:
             values.solace_latency_ms, values.consumer_lag = 155, 130
         self._price = round(
             self._price + self._rng.choice((-1, 1)) * (0.00018 if market else 0.00001), 5
         )
+        self.state.aiops = self.confidence.observe(scenario, offset, timestamp, values)
         observations = []
         for region, suffix in (("LONDON", "LON"), ("NEW_YORK", "NYC")):
             local_issue = region == "LONDON"
@@ -196,6 +227,33 @@ class ScenarioEngine:
             if scenario == "telemetry_loss" and local_issue:
                 observation.timestamp -= timedelta(seconds=offset + 4)
             observations.append(observation)
+        if self._topology_aiops:
+            a = self.state.aiops
+            source = {s.evidence_id: s.metrics for s in a.sources}
+            observations = [
+                ServiceObservation(
+                    service_id="FX-SOURCE-TYO-01",
+                    region="TOKYO",
+                    owner="Market data support (demo)",
+                    timestamp=timestamp,
+                    ingress_rate=float(source["market"]["quote_rate"]),
+                    egress_rate=float(source["market"]["quote_rate"]),
+                    quote_age_ms=45,
+                ),
+                ServiceObservation(
+                    service_id="FX-PRICE-NYC-01",
+                    region="NEW_YORK",
+                    owner="FX platform support (demo)",
+                    timestamp=a.sources[1].timestamp,
+                    delivery_mode="GUARANTEED",
+                    ingress_rate=float(source["semp_queue"]["ingress_rate"]),
+                    egress_rate=float(source["semp_queue"]["egress_rate"]),
+                    quote_age_ms=float(source["data_quality"]["quote_age_ms"]),
+                    backlog=int(source["semp_queue"]["queue_depth"]),
+                    oldest_message_ms=float(source["semp_queue"]["oldest_message_ms"]),
+                    p99_latency_ms=float(source["corvil_tcp"]["rtt_ms"]),
+                ),
+            ]
         services = self.monitor.update(timestamp, observations)
         regions = {
             item.observation.region: InfraStats(
@@ -230,6 +288,15 @@ class ScenarioEngine:
             ),
             "HEALTHY",
         )
+        if self._topology_aiops:
+            if self.state.aiops and self.state.aiops.status in {"AT_RISK", "IMPAIRED"}:
+                self.state.service_condition = "DEGRADED"
+            elif self.state.aiops and self.state.aiops.status == "UNKNOWN":
+                self.state.service_condition = "UNKNOWN"
+            await self._aiops_event(timestamp, values, services)
+            self.bus.publish("fx/market/EURUSD/stats", snapshot)
+            await self._notify()
+            return
         active = {
             item.service_id: item
             for item in self.store.incidents()
@@ -299,17 +366,85 @@ class ScenarioEngine:
         self.bus.publish("fx/market/EURUSD/stats", snapshot)
         await self._notify()
 
+    async def _aiops_event(
+        self, timestamp: datetime, values: FeatureValues, services: list[ServiceHealth]
+    ) -> None:
+        a = self.state.aiops
+        snapshot = self.state.snapshot
+        assert a is not None and snapshot is not None
+        if (
+            a.confirmed
+            and a.status in {"AT_RISK", "IMPAIRED", "UNKNOWN"}
+            and not self._aiops_triggered
+        ):
+            self._aiops_triggered = True
+            event = RegimeChange(
+                event="FX_DATA_CONFIDENCE_CHANGE",
+                symbol="EURUSD",
+                timestamp=timestamp,
+                previous_regime=Regime.NORMAL,
+                new_regime=Regime.STRESSED,
+                drivers=snapshot.zscores,
+                combined_score=a.technical_score,
+                before=self.detector._baseline_values(),
+                after=values,
+                regions={},
+                services=services,
+                aiops=a.model_copy(deep=True),
+            )
+            incident = Incident(
+                correlation_id=event.correlation_id,
+                service_id="FX-PRICE-NYC-01",
+                region="NEW_YORK",
+                owner="FX platform support · Greg (demo)",
+                severity="P3" if a.status == "UNKNOWN" else "P2",
+                opened_at=timestamp,
+                updated_at=timestamp,
+                title=f"EUR/USD data confidence: {a.status.replace('_', ' ').lower()}",
+                impact=(
+                    "TYO-NYC-FX-01 · New York pricing consumer. Synthetic evidence; "
+                    "client trading impact is not measured."
+                ),
+                runbook="aiops",
+                evidence=a.reasons,
+                audit=[
+                    f"{timestamp.isoformat()} Confidence transition confirmed by "
+                    "three consecutive abnormal observations."
+                ],
+            )
+            self._enqueue(event, incident)
+        if a.status == "WITHIN_LIMITS" and a.confirmed:
+            for incident in self.store.incidents():
+                if incident.runbook == "aiops" and incident.status in {"OPEN", "ACKNOWLEDGED"}:
+                    incident.status = "RECOVERED"
+                    incident.recovered_at = incident.updated_at = timestamp
+                    incident.audit.append(
+                        f"{timestamp.isoformat()} Five healthy source observations; "
+                        "data confidence recovered."
+                    )
+                    self.store.save(incident)
+
     def _enqueue(self, change: RegimeChange, incident: Incident | None = None) -> None:
         if not self.store.enqueue(change, incident):
             return
         self.state.last_change = change
         self.state.workflow_stage = "triggered"
         self._timeline(
-            "signal", "Service incident confirmed" if incident else "Market advisory confirmed"
+            "signal",
+            "FX data confidence transition confirmed"
+            if change.aiops
+            else "Service incident confirmed"
+            if incident
+            else "Market advisory confirmed",
         )
         # Optional Direct mirror; the durable local journal owns demo work delivery.
         self.bus.publish(
-            "fx/operations/incident" if incident else "fx/regime/EURUSD/change", change
+            "fx/confidence/EURUSD/change"
+            if change.aiops
+            else "fx/operations/incident"
+            if incident
+            else "fx/regime/EURUSD/change",
+            change,
         )
         self._ensure_worker()
 
@@ -336,12 +471,16 @@ class ScenarioEngine:
             try:
                 decisions = self.jev._fallback(change)
                 async with asyncio.timeout(self.investigation_timeout):
-                    decisions = await self.jev.classify(change)
+                    if not change.aiops:
+                        decisions = await self.jev.classify(change)
                     if current():
                         self.state.evaluation = decisions
                         self.state.workflow_stage = "agent_running"
                         self._timeline(
-                            "evidence", "Frozen service evidence classified; explanation started"
+                            "evidence",
+                            "Corvil, SEMP v1 and market evidence frozen; investigation started"
+                            if change.aiops
+                            else "Frozen service evidence classified; explanation started",
                         )
                         await self._notify()
                     assessment = await self.agent.explain(change, decisions)
@@ -364,7 +503,9 @@ class ScenarioEngine:
                 self.state.explanation_latency_ms = assessment.latency_ms
                 self._timeline("result", "Evidence summary ready; operator checks suggested")
             self.state.completed_investigations += 1
-            self.bus.publish("agent/fx-regime/result", assessment)
+            self.bus.publish(
+                "agent/fx-aiops/result" if change.aiops else "agent/fx-regime/result", assessment
+            )
             await self._notify()
 
     async def incident_action(self, incident_id: str, action: str) -> Incident:

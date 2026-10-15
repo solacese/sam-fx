@@ -12,6 +12,17 @@ from typing import Literal
 from .models import ServiceHealth, ServiceObservation
 
 RUNBOOKS = {
+    "aiops": {
+        "title": "FX data confidence investigation",
+        "owner": "FX platform support (demo)",
+        "checks": [
+            "Match Corvil flow to SEMP client ID, VPN, both TCP endpoints and session epoch.",
+            "Compare source freshness and NYC peer delivery before assigning a suspect component.",
+            "Inspect RTT, retransmit deltas, closed transmit window and blocked percentage.",
+            "Distinguish TCP send-buffer bytes from Guaranteed queue messages and oldest age.",
+            "Review the suspected propagation chain with Greg; causal arrows remain hypotheses.",
+        ],
+    },
     "feed": {
         "title": "Missing or stale prices",
         "owner": "Market data support (demo)",

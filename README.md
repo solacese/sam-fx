@@ -1,4 +1,38 @@
-# sam-fx · FX operations desk
+# SAM for FX AIOps · FX operations desk
+
+## FX data confidence demo (AWS)
+
+The AWS dashboard now presents three stacked source feeds: **Market data**, **Corvil Analytics**
+and **Solace SEMP v1**. All three are controlled simulations. No real Corvil collector or SEMP v1
+poller is connected, and the simulation does not diagnose an actual bank network.
+
+Run **Tokyo → New York**: Tokyo quote activity increases at t+0, NYC TCP pressure appears at t+2,
+the Guaranteed queue starts growing at t+3, and consumer prices age at t+4. Three consecutive abnormal observations confirm
+lower data confidence. The worker wakes the configured LLM, which calls the scoped
+`inspect_fx_path` tool to read the frozen Market/Corvil/SEMP evidence and compare the peer.
+It then returns Greg's brief, a suspect component, referenced evidence and candidate graph links.
+Graph nodes contain source measurements. Grey links show observed sequence; amber dashed links
+are hypotheses. The model cannot add arbitrary graph nodes, ports or relationships.
+
+**TCP pressure**, **Queue build-up**, **Market move · healthy path**, and **Missing telemetry**
+provide contrasting cases. A market move alone does not wake the AIOps investigator. Missing
+technical observations produce UNKNOWN, never an assertion that the connection has failed.
+The synthetic Guaranteed queue depth is distinct from TCP send-buffer bytes and Direct discards.
+SEMP v1 fields include SRTT/variation, fast/timed retransmit deltas, windows, blocking, buffer bytes,
+queue depth/oldest age, unacknowledged messages and ingress/egress.
+
+The detector uses a seeded 300-observation normal baseline, median/MAD with scale floors,
+a weighted technical deviation score and three-sample confirmation. The score is not a calibrated
+probability of data correctness. Five healthy observations confirm recovery. All measurements,
+thresholds, addresses, elapsed offsets and sessions are illustrative fixtures.
+
+AWS uses `FX_ENABLE_LLM=true deploy/scripts/update-dashboard.sh` with the existing server-side
+provider secret. Jev remains disabled unless explicitly enabled separately. A bounded two-request
+LLM/tool loop runs inside the existing local investigation worker; this is not a validated SAM
+request/result integration. The existing optional Solace Direct mirror and SAM deployment
+scaffolding remain unchanged. Provider failure is visibly labelled as a prepared fallback.
+GitHub Pages continues to run an offline prepared replay without model calls or credentials.
+
 
 A company-neutral, dark terminal-style demo for monitoring FX price delivery. Synthetic market conditions and regional service health are shown separately. Confirmed service incidents produce a frozen evidence summary, an owner, suggested runbook checks and a handover record. No trading or remediation actions are performed.
 
@@ -35,7 +69,7 @@ PYTHONPATH=src SOLACE_HOST='' ENABLE_EXTERNAL_PROVIDERS=false \
   .venv/bin/uvicorn fx_regime.api:app --host 127.0.0.1 --port 8080
 ```
 
-Open <http://localhost:8080>. Default explanations and the three desk answers are deterministic; no LLM is required. `ENABLE_EXTERNAL_PROVIDERS=true` opts into configured Jev/Groq calls. Do not send private data without the appropriate approval.
+Open <http://localhost:8080>. Default explanations and the three desk answers are deterministic; no LLM is required. `ENABLE_EXTERNAL_PROVIDERS=true` enables the configured Groq LLM; Jev additionally requires `ENABLE_JEV_PROVIDER=true`. Do not send private data without the appropriate approval.
 
 ## Try it
 

@@ -37,7 +37,9 @@ def create_engine(settings: Settings) -> ScenarioEngine:
         exit_score=settings.detector_exit_score,
     )
     jev = JevClient(
-        settings.jev_api_key if settings.enable_external_providers else "",
+        settings.jev_api_key
+        if settings.enable_external_providers and settings.enable_jev_provider
+        else "",
         endpoint=settings.jev_endpoint,
         model=settings.jev_model,
         timeout_seconds=settings.jev_timeout_seconds,
@@ -86,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "status": "ok",
             "broker_enabled": engine.bus.enabled,
             "broker_connected": engine.bus.connected,
+            "llm_enabled": bool(engine.agent.api_key),
         }
 
     @app.get("/api/state", response_model=DashboardState)

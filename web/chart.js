@@ -21,7 +21,7 @@
   }
   function draw() {
     if(!points.length) return;
-    const width = Math.max(320,svg.clientWidth), height = width < 540 ? 290 : 340;
+    const width = Math.max(320,svg.clientWidth), height = width < 540 ? 290 : 260;
     right=width-69; bottom=height-32; svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
     const latest=points.at(-1), end=(Math.floor(latest.t/(interval*1000))+1)*interval*1000;
     const start=end-seconds*1000, visible=points.filter(p=>p.t>=start), candles=candlesFor(visible);

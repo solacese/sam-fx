@@ -7,6 +7,7 @@
   const copy = value => JSON.parse(JSON.stringify(value));
   let journal = [], evidence = [], listener, value, clipName = 'baseline', index = 0;
   let ids = new Map(), offset = 0, count = 0, completed = 0, lastChange = null, assessment = null;
+  let baselineClip = 'baseline';
   let timeline = [], seen = new Set(), recovery = new Map(), storageAvailable = true;
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
@@ -29,6 +30,7 @@
       });
   }
   function begin(name) {
+    if(name==='baseline') name=baselineClip;
     clipName = name; index = 0; ids = new Map();
     offset = Date.now() - Date.parse(fixtures.clips[name][0].snapshot.timestamp);
   }
@@ -85,7 +87,7 @@
     get storageAvailable() { return storageAvailable; },
     async post(path) {
       if(path.startsWith('/api/scenarios/')) {
-        const name=path.split('/').pop(); if(!fixtures.clips[name]) throw new Error('Unknown scenario');
+        const name=path.split('/').pop(); baselineClip=['market','infrastructure','feed_loss','telemetry_loss','capacity'].includes(name)?'legacy_baseline':'baseline'; if(!fixtures.clips[name]) throw new Error('Unknown scenario');
         lastChange=null; assessment=null; begin(name); tick(); return value;
       }
       if(path==='/api/recover') { begin('baseline'); value.running=false; value.scenario='baseline'; listener(value); return value; }
