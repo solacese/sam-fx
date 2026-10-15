@@ -15,6 +15,7 @@ from .models import (
     FeatureValues,
     Incident,
     InfraStats,
+    PricePoint,
     Regime,
     RegimeChange,
     ServiceObservation,
@@ -215,6 +216,10 @@ class ScenarioEngine:
             regions=regions,
         )
         self.state.snapshot, self.state.services = snapshot, services
+        self.state.price_history.append(
+            PricePoint(timestamp=timestamp, mid=snapshot.mid, bid=snapshot.bid, ask=snapshot.ask)
+        )
+        self.state.price_history = self.state.price_history[-301:]
         self.state.observations += 1
         self.state.market_condition = "STRESSED" if snapshot.detection.market >= 3 else "NORMAL"
         self.state.service_condition = next(

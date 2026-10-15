@@ -63,7 +63,7 @@
         incident.audit.push(`${incident.updated_at} Five healthy replay observations; recovered.`); save();
       }
     }
-    value = {...frame, incidents:copy(journal), last_change:lastChange, assessment,
+    value = {...frame, price_history:[], incidents:copy(journal), last_change:lastChange, assessment,
       observations:count, completed_investigations:completed, pending_investigations:0,
       explanation_latency_ms:null, mode:'BROWSER SIMULATION / PREPARED REPLAY',
       timeline:timeline.slice(0,12), broker_connected:false};

@@ -5,7 +5,7 @@ const rendered = new Map();
 function setHTML(id, value) {
   if(rendered.get(id) !== value) { $(id).innerHTML = value; rendered.set(id, value); }
 }
-let state = null, selected = null, books = {}, question = null, lastTime = '', prices = [];
+let state = null, selected = null, books = {}, question = null, lastTime = '';
 const pill = value => `<span class="pill ${esc(value.toLowerCase())}">${esc(value)}</span>`;
 const time = value => value ? new Date(value).toLocaleTimeString('en-GB', {timeZone:'UTC'}) + ' UTC' : '—';
 const selectedIncident = () => state?.incidents.find(i => i.incident_id === selected);
@@ -47,11 +47,12 @@ function render(s) {
   document.querySelectorAll('[data-scenario]').forEach(b => b.setAttribute('aria-pressed', String(s.running && s.scenario === b.dataset.scenario)));
   const p = s.snapshot;
   if(p) {
-    $('mid').textContent = p.mid.toFixed(5); $('quote').textContent = `BID ${p.bid.toFixed(5)} / ASK ${p.ask.toFixed(5)}`;
-    if(lastTime !== p.timestamp) { lastTime = p.timestamp; prices.push(p.mid); prices = prices.slice(-90); $('mid').classList.remove('update'); void $('mid').offsetWidth; $('mid').classList.add('update'); }
-    const lo = Math.min(...prices)-.00002, hi = Math.max(...prices)+.00002;
-    $('price-path').setAttribute('d', prices.map((v,i) => `${i?'L':'M'}${i*440/Math.max(89,prices.length-1)},${75-(v-lo)/(hi-lo)*70}`).join(' '));
-    $('stats').innerHTML = [['Volatility','volatility'],['Spread','spread'],['Quote rate','quote_rate'],['Latency','solace_latency'],['Lag','consumer_lag']].map(([label,key]) => `<div>${label}<strong>${p.zscores[key].toFixed(1)}σ</strong></div>`).join('');
+    $('mid').textContent = p.mid.toFixed(5);
+    $('bid').textContent = p.bid.toFixed(5); $('ask').textContent = p.ask.toFixed(5);
+    $('spread').textContent = ((p.ask-p.bid)*10000).toFixed(1) + ' pips';
+    if(lastTime !== p.timestamp) { lastTime = p.timestamp; $('mid').classList.remove('update'); void $('mid').offsetWidth; $('mid').classList.add('update'); }
+    window.SamFxChart.update(p, s.price_history || []);
+    $('stats').innerHTML = [['Volatility','volatility'],['Spread','spread'],['Quote rate','quote_rate'],['Latency','solace_latency'],['Lag','consumer_lag']].map(([label,key]) => `<div class="${p.zscores[key]>=3?'elevated':''}">${label}<strong>${p.zscores[key].toFixed(1)}σ</strong></div>`).join('');
   }
   $('services').innerHTML = s.services.map(h => {
     const o = h.observation, unknown = h.status === 'UNKNOWN', age = Math.max(0,(Date.parse(h.observed_at)-Date.parse(o.timestamp))/1000);
@@ -82,6 +83,6 @@ if(window.SamFxDemo) {
 fetch('/api/runbooks').then(r=>r.json()).then(data=>{ books=data; if(state)render(state); }).catch(()=>error('Runbooks could not be loaded.'));
 const stream = new EventSource('/api/events');
 stream.onmessage = event => { $('connection').textContent='● DEMO STREAM'; render(JSON.parse(event.data)); };
-stream.onerror = () => { $('connection').textContent='○ RECONNECTING'; $('service-status').textContent='UNKNOWN'; $('service-status').className='unknown'; };
+stream.onerror = () => { window.SamFxChart.disconnect(); $('connection').textContent='○ RECONNECTING'; $('service-status').textContent='UNKNOWN'; $('service-status').className='unknown'; };
 
 }

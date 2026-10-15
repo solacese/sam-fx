@@ -24,7 +24,7 @@ jobs:
           INCIDENT_STORE_PATH: ':memory:'
           ENABLE_EXTERNAL_PROVIDERS: 'false'
       - run: PYTHONPATH=src python scripts/build_pages.py
-      - run: node scripts/test_pages.cjs
+      - run: node scripts/test_pages.cjs && node scripts/test_chart.cjs
       # Package the standard Pages tar directly: the composite Pages uploader
       # contains an unpinned nested action, which this organization rejects.
       - name: Package Pages artifact

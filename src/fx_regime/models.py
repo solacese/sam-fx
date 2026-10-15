@@ -194,6 +194,13 @@ class Incident(StrictModel):
     audit: list[str] = Field(default_factory=list)
 
 
+class PricePoint(StrictModel):
+    timestamp: AwareDatetime
+    mid: float
+    bid: float
+    ask: float
+
+
 class DashboardState(StrictModel):
     scenario: Literal[
         "baseline",
@@ -210,6 +217,7 @@ class DashboardState(StrictModel):
     ] = "monitoring"
     running: bool = False
     snapshot: FeatureSnapshot | None = None
+    price_history: list[PricePoint] = Field(default_factory=list)
     last_change: RegimeChange | None = None
     evaluation: list[JevDecision] = Field(default_factory=list)
     assessment: AgentAssessment | None = None

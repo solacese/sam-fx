@@ -42,7 +42,7 @@ async def build() -> None:
     (OUTPUT / "demo-data.js").write_text(
         "window.SamFxFixtures=" + json.dumps(data, separators=(",", ":")) + ";\n"
     )
-    for name in ("app.js", "styles.css", "demo.js"):
+    for name in ("app.js", "chart.js", "styles.css", "demo.js"):
         shutil.copy2(ROOT / "web" / name, OUTPUT / name)
     html = (ROOT / "web" / "index.html").read_text()
     html = html.replace('href="/"', 'href="./"').replace("/assets/", "./")

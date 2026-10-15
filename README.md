@@ -109,3 +109,12 @@ volume for the incident journal. One replica with a Recreate rollout avoids conc
 SQLite writers; a short interruption is expected during rollout. The previous deployment
 specification is saved under ignored `.generated/` for rollback. Cluster API access and a
 valid AWS SSO session are prerequisites.
+
+### Updating price curve
+
+The main EUR/USD chart displays the simulated source mid-price and current bid/ask and spread.
+Choose a 1-, 3- or 5-minute window; hover or use arrow keys on the chart to inspect observations.
+The server keeps the latest 301 source observations in memory for reconnects; history starts anew
+on a process restart. Pages accumulates replay prices while the tab is open. Missing observations
+break the curve, and a stalled stream holds its last price with a paused indicator. No real market
+data provider is connected.
