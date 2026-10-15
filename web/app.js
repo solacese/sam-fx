@@ -5,7 +5,7 @@ const rendered = new Map();
 function setHTML(id, value) {
   if(rendered.get(id) !== value) { $(id).innerHTML = value; rendered.set(id, value); }
 }
-let state = null, selected = null, books = {}, question = null, lastTime = '';
+let state = null, selected = null, books = {}, question = null, lastTime = '', selectingHistory = false;
 const pill = value => `<span class="pill ${esc(value.toLowerCase())}">${esc(value)}</span>`;
 const time = value => value ? new Date(value).toLocaleTimeString('en-GB', {timeZone:'UTC'}) + ' UTC' : '—';
 const selectedIncident = () => state?.incidents.find(i => i.incident_id === selected);
@@ -15,7 +15,7 @@ async function post(path) {
   catch (e) { error(e.message); return null; }
 }
 document.querySelectorAll('[data-scenario]').forEach(button => button.addEventListener('click', async () => {
-  button.disabled = true; selected = null; const result = await post('/api/scenarios/' + button.dataset.scenario); button.disabled = false; if(result) render(result);
+  button.disabled = true; selected = null; selectingHistory = false; const result = await post('/api/scenarios/' + button.dataset.scenario); button.disabled = false; if(result) render(result);
 }));
 $('recover').addEventListener('click', async () => { const result = await post('/api/recover'); if(result) render(result); });
 document.querySelectorAll('[data-question]').forEach(button => button.addEventListener('click', () => { question = button.dataset.question; renderChat(); }));
@@ -23,8 +23,9 @@ $('incidents').addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if(action) { action.disabled = true; await post(`/api/incidents/${action.dataset.id}/${action.dataset.action}`); action.disabled = false; return; }
   const row = event.target.closest('[data-incident]');
-  if(row) { selected = row.dataset.incident; render(state); }
+  if(row) { selected = row.dataset.incident; selectingHistory = true; render(state); }
 });
+$('follow-latest').addEventListener('click', () => { selectingHistory = false; render(state); });
 function renderChat() {
   if(!state || !question) return;
   const incident = selectedIncident(), assessment = incident?.assessment || (!incident ? state.assessment : null);
@@ -38,7 +39,8 @@ function renderChat() {
 }
 function render(s) {
   state = s;
-  if(!selected && s.last_change) selected = s.incidents.find(i => i.correlation_id === s.last_change.correlation_id)?.incident_id || null;
+  if(!selectingHistory) selected = s.incidents.find(i => i.correlation_id === s.last_change?.correlation_id)?.incident_id || null;
+  $('follow-latest').hidden = !selectingHistory;
   $('clock').textContent = time(s.snapshot?.timestamp);
   for(const [id, value] of [['market-status',s.market_condition], ['service-status',s.service_condition]]) { $(id).textContent = value; $(id).className = value.toLowerCase(); }
   $('incident-count').textContent = s.incidents.filter(i => ['OPEN','ACKNOWLEDGED'].includes(i.status)).length;

@@ -16,3 +16,5 @@ header{height:62px;border-bottom:1px solid var(--line);display:flex;align-items:
 
 .primary-scenario[aria-pressed=true]{background:#00c99a;color:#041b15;border-color:#00dcaa}
 .main-column{grid-template-columns:minmax(0,1fr)}.investigation{min-width:0}.graph-panel{max-width:100%}
+
+button[hidden]{display:none}#follow-latest{margin-bottom:14px}
