@@ -150,7 +150,14 @@ async def test_end_to_end_offmarket_cases_and_recovery(scenario, status, classif
     engine.store.db.close()
 
 
-async def test_llm_cannot_blame_tcp_for_fresh_source_divergence(monkeypatch):
+@pytest.mark.parametrize(
+    "bad_component,bad_assessment",
+    [
+        ("nyc_tcp", "A TCP fault caused the price error."),
+        ("tokyo_source", "The price differs by 6 pips from the reference band."),
+    ],
+)
+async def test_llm_cannot_override_frozen_comparison(monkeypatch, bad_component, bad_assessment):
     import json
     from types import SimpleNamespace
 
@@ -176,8 +183,8 @@ async def test_llm_cannot_blame_tcp_for_fresh_source_divergence(monkeypatch):
                 "function": {"name": "inspect_fx_path", "arguments": '{"path_id":"TYO-NYC-FX-01"}'},
             }
             result = {
-                "assessment": "A TCP fault caused the price error.",
-                "suspected_component": "nyc_tcp",
+                "assessment": bad_assessment,
+                "suspected_component": bad_component,
                 "evidence_ids": ["reference", "data_quality"],
                 "suggested_next_investigation": "Restart TCP.",
                 "hypothesis_edges": ["tcp_queue", "queue_data"],
