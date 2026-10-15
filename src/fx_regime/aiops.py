@@ -21,8 +21,15 @@ from .models import (
     InvestigationCheck,
     SourceEvidence,
 )
+from .offmarket import OFFMARKET_SCENARIOS, QuoteSimulation
 
-AIOPS_SCENARIOS = {"tokyo_burst", "tcp_pressure", "queue_pressure", "market_only", "aiops_unknown"}
+AIOPS_SCENARIOS = {
+    "tokyo_burst",
+    "tcp_pressure",
+    "queue_pressure",
+    "market_only",
+    "aiops_unknown",
+} | OFFMARKET_SCENARIOS
 CONNECTION = {
     "client_id": "FX-PRICE-NYC-01",
     "vpn": "fx-demo",
@@ -52,6 +59,8 @@ NORMAL = {
 
 class ConfidenceMonitor:
     def __init__(self) -> None:
+        self.offmarket_mode = True
+        self.quotes = QuoteSimulation()
         self.baseline = {
             key: deque([value * (1 + (i % 7 - 3) * 0.01) for i in range(300)], maxlen=300)
             for key, value in NORMAL.items()
@@ -62,14 +71,18 @@ class ConfidenceMonitor:
         self.last: datetime | None = None
 
     def observe(
-        self, scenario: str, offset: int, now: datetime, market: FeatureValues
+        self, scenario: str, offset: int, now: datetime, market: FeatureValues, mid: float = 1.11882
     ) -> ConfidenceState:
         if self.last and (now - self.last).total_seconds() != 1:
             self.votes = self.healthy_votes = 0
         self.last = now
-        burst = scenario in {"tokyo_burst", "market_only"}
-        tcp = scenario == "tcp_pressure" or (scenario == "tokyo_burst" and offset >= 2)
-        queue = scenario == "queue_pressure" or (scenario == "tokyo_burst" and offset >= 3)
+        burst = scenario in {"tokyo_burst", "market_only", "offmarket_stale", "market_reprice"}
+        tcp = scenario == "tcp_pressure" or (
+            scenario in {"tokyo_burst", "offmarket_stale"} and offset >= 2
+        )
+        queue = scenario == "queue_pressure" or (
+            scenario in {"tokyo_burst", "offmarket_stale"} and offset >= 3
+        )
         missing = scenario == "aiops_unknown"
         values = dict(NORMAL)
         if tcp:
@@ -78,6 +91,14 @@ class ConfidenceMonitor:
             values["queue_depth"] = 850.0 + offset * 70
         if (tcp or queue) and (scenario != "tokyo_burst" or offset >= 4):
             values["quote_age_ms"] = 380.0 + offset * 100
+        comparison = self.quotes.observe(scenario, offset, now, mid)
+        if scenario in OFFMARKET_SCENARIOS:
+            self.offmarket_mode = True
+        elif scenario != "baseline":
+            self.offmarket_mode = False
+        offmarket_mode = self.offmarket_mode
+        if offmarket_mode:
+            values["quote_age_ms"] = comparison.delivered_age_ms
         scores = {}
         for key, value in values.items():
             center = median(self.baseline[key])
@@ -90,7 +111,11 @@ class ConfidenceMonitor:
             + 0.25 * scores["queue_depth"]
             + 0.2 * scores["quote_age_ms"]
         )
-        abnormal = missing or score >= 2.0 or values["quote_age_ms"] >= 1000
+        abnormal = (
+            comparison.status != "WITHIN_BAND"
+            if offmarket_mode
+            else missing or score >= 2.0 or values["quote_age_ms"] >= 1000
+        )
         self.votes = self.votes + 1 if abnormal else 0
         self.healthy_votes = 0 if abnormal else self.healthy_votes + 1
         if abnormal and not self.onset:
@@ -109,6 +134,18 @@ class ConfidenceMonitor:
             if abnormal
             else "WITHIN_LIMITS"
         )
+        if offmarket_mode:
+            confirmed = comparison.confirmed
+            status = (
+                "UNKNOWN"
+                if comparison.status == "UNKNOWN"
+                else "IMPAIRED"
+                if comparison.status == "OFF_MARKET"
+                else "WATCH"
+                if comparison.status == "SUSPECTED"
+                else "WITHIN_LIMITS"
+            )
+            self.votes = comparison.consecutive
         reasons = []
         if burst:
             reasons.append(
@@ -130,7 +167,9 @@ class ConfidenceMonitor:
             )
         if values["quote_age_ms"] >= 1000:
             reasons.append("Consumer quote age exceeds the illustrative 1,000 ms freshness budget.")
-        if not abnormal:
+        if offmarket_mode:
+            reasons.extend(comparison.reasons)
+        if not abnormal and comparison.status == "WITHIN_BAND":
             for key, value in values.items():
                 self.baseline[key].append(value)
         measured = now - timedelta(seconds=10) if missing else now
@@ -151,7 +190,9 @@ class ConfidenceMonitor:
                 },
             ),
             SourceEvidence(
-                change_offset_s=(2 if scenario == "tokyo_burst" else 0) if tcp else None,
+                change_offset_s=(2 if scenario in {"tokyo_burst", "offmarket_stale"} else 0)
+                if tcp
+                else None,
                 evidence_id="corvil_tcp",
                 source="CORVIL",
                 timestamp=measured,
@@ -170,7 +211,9 @@ class ConfidenceMonitor:
                 },
             ),
             SourceEvidence(
-                change_offset_s=(2 if scenario == "tokyo_burst" else 0) if tcp else None,
+                change_offset_s=(2 if scenario in {"tokyo_burst", "offmarket_stale"} else 0)
+                if tcp
+                else None,
                 evidence_id="semp_tcp",
                 source="SEMP_V1",
                 timestamp=measured,
@@ -191,7 +234,9 @@ class ConfidenceMonitor:
                 },
             ),
             SourceEvidence(
-                change_offset_s=(3 if scenario == "tokyo_burst" else 0) if queue else None,
+                change_offset_s=(3 if scenario in {"tokyo_burst", "offmarket_stale"} else 0)
+                if queue
+                else None,
                 evidence_id="semp_queue",
                 source="SEMP_V1",
                 timestamp=measured,
@@ -209,7 +254,9 @@ class ConfidenceMonitor:
                 },
             ),
             SourceEvidence(
-                change_offset_s=(4 if scenario == "tokyo_burst" else 0)
+                change_offset_s=(
+                    2 if scenario == "offmarket_stale" else 4 if scenario == "tokyo_burst" else 0
+                )
                 if (tcp or queue) and values["quote_age_ms"] > 80
                 else None,
                 evidence_id="data_quality",
@@ -226,6 +273,24 @@ class ConfidenceMonitor:
                 },
             ),
         ]
+        if offmarket_mode:
+            sources[0].metrics.update(source_mid=comparison.source_mid)
+            sources[-1].metrics.update(delivered_mid=comparison.delivered_mid)
+            sources.append(
+                SourceEvidence(
+                    evidence_id="reference",
+                    source="MARKET",
+                    timestamp=now,
+                    region="REFERENCE",
+                    summary="Synthetic independent-path indicative quote consensus; not "
+                    "executable fair value.",
+                    metrics={
+                        "contributors_used": float(len(comparison.contributors_used)),
+                        "reference_mid": comparison.reference_mid or 0.0,
+                        "band_gap_pips": comparison.outside_band_pips or 0.0,
+                    },
+                )
+            )
         return ConfidenceState(
             status=status,
             confirmed=confirmed,
@@ -237,6 +302,7 @@ class ConfidenceMonitor:
             reasons=reasons,
             zscores=scores,
             sources=sources,
+            offmarket=comparison if offmarket_mode else None,
             connection=CONNECTION,
             onset=self.onset,
         )
@@ -245,9 +311,11 @@ class ConfidenceMonitor:
 def source_checks(state: ConfidenceState) -> list[InvestigationCheck]:
     return [
         InvestigationCheck(
-            name="Compare Tokyo activity and source freshness",
+            name="Compare independent reference, Tokyo source and NYC delivered quotes"
+            if state.offmarket
+            else "Compare Tokyo activity and source freshness",
             source="MARKET",
-            evidence_ids=["market"],
+            evidence_ids=["market", "reference", "data_quality"] if state.offmarket else ["market"],
         ),
         InvestigationCheck(
             name="Compare NYC socket with an unaffected peer",
@@ -263,6 +331,8 @@ def source_checks(state: ConfidenceState) -> list[InvestigationCheck]:
 
 
 def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> ExplanationGraph:
+    if state.offmarket:
+        return offmarket_graph(state, requested)
     sources = {s.evidence_id: s for s in state.sources}
     market, tcp, queue, quality = [
         sources[k].metrics for k in ("market", "semp_tcp", "semp_queue", "data_quality")
@@ -366,3 +436,94 @@ def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> Expla
             ),
         )
     return graph
+
+
+def offmarket_graph(state: ConfidenceState, requested: Sequence[str]) -> ExplanationGraph:
+    comparison = state.offmarket
+    assert comparison is not None
+    sources = {s.evidence_id: s for s in state.sources}
+    tcp, queue = sources["semp_tcp"].metrics, sources["semp_queue"].metrics
+    gap = comparison.mid_delta_pips
+    nodes = [
+        ExplanationNode(
+            node_id="reference",
+            label="Independent reference",
+            region="CONSENSUS",
+            detail=f"{len(comparison.contributors_used)}/3 in reference quorum",
+            evidence_ids=["reference"],
+        ),
+        ExplanationNode(
+            node_id="tokyo_source",
+            label="Tokyo source price",
+            region="TOKYO",
+            detail=f"{comparison.source_mid:.5f}",
+            evidence_ids=["market"],
+        ),
+        ExplanationNode(
+            node_id="nyc_tcp",
+            label="NYC consumer port 43172",
+            region="NEW YORK",
+            detail=f"RTT {float(tcp['srtt_us']) / 1000:.1f} ms · blocked {tcp['blocked_pct']:.0f}%",
+            evidence_ids=["corvil_tcp", "semp_tcp"],
+        ),
+        ExplanationNode(
+            node_id="nyc_queue",
+            label="NYC-FX-PRICE-Q",
+            region="NEW YORK",
+            detail=f"{queue['queue_depth']:.0f} queued · Guaranteed",
+            evidence_ids=["semp_queue"],
+        ),
+        ExplanationNode(
+            node_id="data_quality",
+            label="NYC delivered price",
+            region="PRICE CHECK",
+            detail=f"{comparison.delivered_mid:.5f} · "
+            + (f"{gap:+.1f} pips" if gap is not None else "reference unknown"),
+            evidence_ids=["data_quality", "reference"],
+        ),
+    ]
+    edges = []
+    if comparison.reference_mid is not None:
+        edges.append(
+            ExplanationEdge(
+                edge_id="reference_data",
+                source="reference",
+                target="data_quality",
+                label="Measured price comparison, not causality",
+                kind="comparison",
+                evidence_ids=["reference", "data_quality"],
+            )
+        )
+    if comparison.reference_mid is not None:
+        edges.append(
+            ExplanationEdge(
+                edge_id="reference_source",
+                source="reference",
+                target="tokyo_source",
+                label=f"Source mid vs reference: {comparison.source_delta_pips:+.1f} pips",
+                kind="comparison",
+                evidence_ids=["reference", "market"],
+            )
+        )
+    if comparison.classification == "STALE_DELIVERY":
+        allowed = {
+            "tcp_queue": ("nyc_tcp", "nyc_queue", ["semp_tcp", "semp_queue"]),
+            "queue_data": ("nyc_queue", "data_quality", ["semp_queue", "data_quality"]),
+        }
+    elif comparison.classification == "SOURCE_DIVERGENCE":
+        allowed = {"source_data": ("tokyo_source", "data_quality", ["market", "data_quality"])}
+    else:
+        allowed = {}
+    for key in dict.fromkeys(requested):
+        if key in allowed:
+            a, b, refs = allowed[key]
+            edges.append(
+                ExplanationEdge(
+                    edge_id=key,
+                    source=a,
+                    target=b,
+                    label="Suspected propagation",
+                    evidence_ids=refs,
+                )
+            )
+    return ExplanationGraph(nodes=nodes, edges=edges)

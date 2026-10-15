@@ -75,6 +75,7 @@ function render(s) {
   $('timing').textContent = `${s.observations} observations · ${s.explanation_latency_ms == null ? 'No completed explanation' : s.explanation_latency_ms+' ms latest worker time (excludes detection/queue)'}`;
   if(window.SamFxDemo) { $('timing').textContent = `${s.observations} replay observations · no live latency measurement`; if(!window.SamFxDemo.storageAvailable) error('Browser storage is unavailable. Export handover to keep this session.'); }
   window.SamFxAiops.render(s, a, incident);
+  window.SamFxOffmarket.render(s, a);
   renderChat();
 }
 if(window.SamFxDemo) {

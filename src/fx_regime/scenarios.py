@@ -23,6 +23,7 @@ from .models import (
     ServiceObservation,
     TimelineEvent,
 )
+from .offmarket import OFFMARKET_SCENARIOS
 from .operations import RUNBOOKS, ServiceMonitor
 from .solace import SolaceBus
 from .store import IncidentStore
@@ -185,6 +186,8 @@ class ScenarioEngine:
             "capacity",
             "tokyo_burst",
             "market_only",
+            "offmarket_stale",
+            "market_reprice",
         }
         infrastructure = scenario in {"infrastructure", "capacity"}
         if scenario in {"volatile", "market", "capacity", "tokyo_burst", "market_only"}:
@@ -193,12 +196,16 @@ class ScenarioEngine:
             values.spread_pips = 5.5
         if scenario in {"market", "capacity", "tokyo_burst", "market_only"}:
             values.quote_rate = 180 if scenario in {"tokyo_burst", "market_only"} else 80
+        if scenario in OFFMARKET_SCENARIOS:
+            values.spread_pips = 0.8
+            if scenario in {"offmarket_stale", "market_reprice"} and offset >= 2:
+                values.realized_volatility, values.quote_rate = 0.00022, 180
         if infrastructure:
             values.solace_latency_ms, values.consumer_lag = 155, 130
         self._price = round(
             self._price + self._rng.choice((-1, 1)) * (0.00018 if market else 0.00001), 5
         )
-        self.state.aiops = self.confidence.observe(scenario, offset, timestamp, values)
+        self.state.aiops = self.confidence.observe(scenario, offset, timestamp, values, self._price)
         observations = []
         for region, suffix in (("LONDON", "LON"), ("NEW_YORK", "NYC")):
             local_issue = region == "LONDON"
@@ -265,11 +272,16 @@ class ScenarioEngine:
             for item in services
             if item.status != "UNKNOWN"
         }
+        comparison = self.state.aiops.offmarket if self._topology_aiops else None
         snapshot, change = self.detector.update(
             symbol="EURUSD",
             timestamp=timestamp,
-            bid=self._price - values.spread_pips / 20000,
-            ask=self._price + values.spread_pips / 20000,
+            bid=comparison.delivered_bid
+            if comparison
+            else self._price - values.spread_pips / 20000,
+            ask=comparison.delivered_ask
+            if comparison
+            else self._price + values.spread_pips / 20000,
             values=values,
             regions=regions,
         )
@@ -289,9 +301,17 @@ class ScenarioEngine:
             "HEALTHY",
         )
         if self._topology_aiops:
-            if self.state.aiops and self.state.aiops.status in {"AT_RISK", "IMPAIRED"}:
+            if (
+                self.state.aiops
+                and not self.state.aiops.offmarket
+                and self.state.aiops.status in {"AT_RISK", "IMPAIRED"}
+            ):
                 self.state.service_condition = "DEGRADED"
-            elif self.state.aiops and self.state.aiops.status == "UNKNOWN":
+            elif (
+                self.state.aiops
+                and not self.state.aiops.offmarket
+                and self.state.aiops.status == "UNKNOWN"
+            ):
                 self.state.service_condition = "UNKNOWN"
             await self._aiops_event(timestamp, values, services)
             self.bus.publish("fx/market/EURUSD/stats", snapshot)
@@ -400,9 +420,13 @@ class ScenarioEngine:
                 severity="P3" if a.status == "UNKNOWN" else "P2",
                 opened_at=timestamp,
                 updated_at=timestamp,
-                title=f"EUR/USD data confidence: {a.status.replace('_', ' ').lower()}",
+                title=(
+                    f"EUR/USD: {a.offmarket.status.replace('_', ' ').lower()}"
+                    if a.offmarket
+                    else f"EUR/USD data confidence: {a.status.replace('_', ' ').lower()}"
+                ),
                 impact=(
-                    "TYO-NYC-FX-01 · New York pricing consumer. Synthetic evidence; "
+                    "TYO-NYC-FX-01 · NYC delivered quote compared with independent reference. "
                     "client trading impact is not measured."
                 ),
                 runbook="aiops",
@@ -431,7 +455,11 @@ class ScenarioEngine:
         self.state.workflow_stage = "triggered"
         self._timeline(
             "signal",
-            "FX data confidence transition confirmed"
+            "FX off-market discrepancy confirmed"
+            if change.aiops
+            and change.aiops.offmarket
+            and change.aiops.offmarket.status == "OFF_MARKET"
+            else "FX data confidence transition confirmed"
             if change.aiops
             else "Service incident confirmed"
             if incident

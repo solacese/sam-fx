@@ -131,6 +131,12 @@ class JevClient:
             cause = Cause.BOTH
         else:
             cause = Cause.UNCLEAR
+        if change.aiops and change.aiops.offmarket:
+            cause = (
+                Cause.INFRASTRUCTURE
+                if change.aiops.offmarket.classification == "STALE_DELIVERY"
+                else Cause.UNCLEAR
+            )
         return [
             JevDecision(
                 question="MATERIAL_POLICY_SURPRISE",

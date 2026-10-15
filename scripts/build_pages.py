@@ -26,12 +26,7 @@ async def clip(scenario: str, *, legacy: bool = False) -> list[dict[str, object]
     engine._topology_aiops = scenario in AIOPS_SCENARIOS or (scenario == "baseline" and not legacy)
     frames = []
     for i in range(30 if scenario == "baseline" else 32):
-        active = scenario != "baseline" and i < (
-            24
-            if scenario
-            in {"tokyo_burst", "tcp_pressure", "queue_pressure", "market_only", "aiops_unknown"}
-            else 12
-        )
+        active = scenario != "baseline" and i < (24 if scenario in AIOPS_SCENARIOS else 12)
         engine.state.scenario = scenario if active else "baseline"
         engine.state.running = active
         await engine._sample(scenario if active else "baseline", i)
@@ -55,6 +50,11 @@ async def build() -> None:
         "queue_pressure",
         "market_only",
         "aiops_unknown",
+        "offmarket_stale",
+        "offmarket_source",
+        "reference_loss",
+        "reference_outlier",
+        "market_reprice",
     ]
     clips = {name: await clip(name) for name in scenarios}
     clips["legacy_baseline"] = await clip("baseline", legacy=True)
@@ -62,7 +62,7 @@ async def build() -> None:
     (OUTPUT / "demo-data.js").write_text(
         "window.SamFxFixtures=" + json.dumps(data, separators=(",", ":")) + ";\n"
     )
-    for name in ("app.js", "chart.js", "aiops.js", "styles.css", "demo.js"):
+    for name in ("app.js", "chart.js", "aiops.js", "offmarket.js", "styles.css", "demo.js"):
         shutil.copy2(ROOT / "web" / name, OUTPUT / name)
     html = (ROOT / "web" / "index.html").read_text()
     html = html.replace('href="/"', 'href="./"').replace("/assets/", "./")

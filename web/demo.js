@@ -57,7 +57,7 @@
     for(const incident of journal) {
       if(!['OPEN','ACKNOWLEDGED'].includes(incident.status)) continue;
       const service = frame.services.find(h=>h.observation.service_id===incident.service_id);
-      const healthy = service?.status === 'HEALTHY';
+      const healthy = incident.runbook==='aiops' ? (frame.aiops?.offmarket ? frame.aiops.offmarket.status==='WITHIN_BAND' : frame.aiops?.status==='WITHIN_LIMITS') : service?.status==='HEALTHY';
       const samples = healthy ? (recovery.get(incident.incident_id)||0)+1 : 0;
       recovery.set(incident.incident_id,samples);
       if(samples >= 5) {
@@ -88,7 +88,13 @@
     async post(path) {
       if(path.startsWith('/api/scenarios/')) {
         const name=path.split('/').pop(); baselineClip=['market','infrastructure','feed_loss','telemetry_loss','capacity'].includes(name)?'legacy_baseline':'baseline'; if(!fixtures.clips[name]) throw new Error('Unknown scenario');
-        lastChange=null; assessment=null; begin(name); tick(); return value;
+        for(const item of journal) {
+          if(item.runbook==='aiops' && ['OPEN','ACKNOWLEDGED'].includes(item.status)) {
+            item.status='RESOLVED'; item.updated_at=new Date().toISOString();
+            item.audit.push(`${item.updated_at} Demo scenario replaced; not a measured recovery.`);
+          }
+        }
+        save(); lastChange=null; assessment=null; begin(name); tick(); return value;
       }
       if(path==='/api/recover') { begin('baseline'); value.running=false; value.scenario='baseline'; listener(value); return value; }
       const match=path.match(/^\/api\/incidents\/([^/]+)\/(acknowledge|resolve)$/);

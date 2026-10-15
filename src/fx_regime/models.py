@@ -137,6 +137,41 @@ class SourceEvidence(StrictModel):
     metrics: dict[str, float | str]
 
 
+class ReferenceQuote(MarketTick):
+    contributor: str
+    received_at: AwareDatetime
+    basis: str = "EURUSD-SPOT-INDICATIVE"
+    clock_uncertainty_ms: float = Field(default=5, ge=0, allow_inf_nan=False)
+
+
+class OffMarketState(StrictModel):
+    status: Literal["WITHIN_BAND", "SUSPECTED", "OFF_MARKET", "UNKNOWN"]
+    confirmed: bool
+    timestamp: AwareDatetime
+    consecutive: int
+    recovery_count: int
+    reference_bid: float | None = None
+    reference_ask: float | None = None
+    reference_mid: float | None = None
+    delivered_bid: float
+    delivered_ask: float
+    delivered_mid: float
+    source_mid: float
+    delivered_age_ms: float
+    mid_delta_pips: float | None = None
+    outside_band_pips: float | None = None
+    source_delta_pips: float | None = None
+    tolerance_pips: float = 1.0
+    reference_quotes: list[ReferenceQuote]
+    contributors_used: list[str]
+    excluded: dict[str, str]
+    reference_dispersion_pips: float | None = None
+    classification: Literal[
+        "ALIGNED", "STALE_DELIVERY", "SOURCE_DIVERGENCE", "UNDETERMINED", "REFERENCE_UNAVAILABLE"
+    ]
+    reasons: list[str]
+
+
 class ConfidenceState(StrictModel):
     status: Literal["WITHIN_LIMITS", "WATCH", "AT_RISK", "IMPAIRED", "UNKNOWN"]
     confirmed: bool = False
@@ -151,6 +186,7 @@ class ConfidenceState(StrictModel):
     sources: list[SourceEvidence]
     connection: dict[str, str]
     onset: AwareDatetime | None = None
+    offmarket: OffMarketState | None = None
 
 
 class ExplanationNode(StrictModel):
@@ -167,7 +203,7 @@ class ExplanationEdge(StrictModel):
     source: str
     target: str
     label: str
-    kind: Literal["hypothesis", "sequence"] = "hypothesis"
+    kind: Literal["hypothesis", "sequence", "comparison"] = "hypothesis"
     evidence_ids: list[str]
 
 
@@ -225,6 +261,7 @@ class AgentAssessment(StrictModel):
     graph: ExplanationGraph | None = None
     checks: list[InvestigationCheck] = Field(default_factory=list)
     confidence_at_event: str | None = None
+    offmarket_at_event: OffMarketState | None = None
     suspected_component: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
     degraded: bool = False
@@ -280,6 +317,11 @@ class DashboardState(StrictModel):
         "queue_pressure",
         "market_only",
         "aiops_unknown",
+        "offmarket_stale",
+        "offmarket_source",
+        "reference_loss",
+        "reference_outlier",
+        "market_reprice",
     ] = "baseline"
     workflow_stage: Literal[
         "monitoring", "triggered", "evidence_ready", "agent_running", "complete"

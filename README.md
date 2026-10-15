@@ -1,37 +1,57 @@
-# SAM for FX AIOps · FX operations desk
+# sam-fx · off-market investigator
 
-## FX data confidence demo (AWS)
+## Off-market detection and investigation
 
-The AWS dashboard now presents three stacked source feeds: **Market data**, **Corvil Analytics**
-and **Solace SEMP v1**. All three are controlled simulations. No real Corvil collector or SEMP v1
-poller is connected, and the simulation does not diagnose an actual bank network.
+The primary demo asks **“Are we off-market, and why?”** Compare the **NYC delivered quote**,
+**Tokyo source quote** and **independent-path reference consensus**. All prices, reference
+contributors, Corvil metrics and Solace SEMP v1 observations remain simulated. AWS can use
+its configured server-side LLM; Pages runs prepared explanations with no provider requests.
 
-Run **Tokyo → New York**: Tokyo quote activity increases at t+0, NYC TCP pressure appears at t+2,
-the Guaranteed queue starts growing at t+3, and consumer prices age at t+4. Three consecutive abnormal observations confirm
-lower data confidence. The worker wakes the configured LLM, which calls the scoped
-`inspect_fx_path` tool to read the frozen Market/Corvil/SEMP evidence and compare the peer.
-It then returns Greg's brief, a suspect component, referenced evidence and candidate graph links.
-Graph nodes contain source measurements. Grey links show observed sequence; amber dashed links
-are hypotheses. The model cannot add arbitrary graph nodes, ports or relationships.
+Five controls tell the story:
 
-**TCP pressure**, **Queue build-up**, **Market move · healthy path**, and **Missing telemetry**
-provide contrasting cases. A market move alone does not wake the AIOps investigator. Missing
-technical observations produce UNKNOWN, never an assertion that the connection has failed.
-The synthetic Guaranteed queue depth is distinct from TCP send-buffer bytes and Direct discards.
-SEMP v1 fields include SRTT/variation, fast/timed retransmit deltas, windows, blocking, buffer bytes,
-queue depth/oldest age, unacknowledged messages and ingress/egress.
+- **Simulate stale delivery:** the reference and Tokyo source reprice by 18 pips while NYC
+  retains its old quote. Corvil RTT and retransmissions increase, the SEMP transmit window
+  closes, and Guaranteed queue depth rises. The investigation may localize delivery pressure
+  to `FX-PRICE-NYC-01`, consumer `10.30.1.20:43172`, and `NYC-FX-PRICE-Q`.
+- **Source divergence:** the fresh Tokyo quote is 6 pips from the reference; NYC follows it.
+  Infrastructure is healthy. Investigate the source/pricing configuration, not TCP.
+- **Real market move:** all price views follow the move. No off-market incident or LLM call.
+- **One bad reference:** two contributors agree and a third is excluded. No incident or LLM call.
+- **Reference lost:** quorum is unavailable. Withhold the price verdict and investigate
+  reference quality; never infer that the price is wrong or a connection has failed.
 
-The detector uses a seeded 300-observation normal baseline, median/MAD with scale floors,
-a weighted technical deviation score and three-sample confirmation. The score is not a calibrated
-probability of data correctness. Five healthy observations confirm recovery. All measurements,
-thresholds, addresses, elapsed offsets and sessions are illustrative fixtures.
+The deterministic comparator requires at least two distinct, agreeing reference contributors
+on the same EUR/USD spot indicative basis. Source age must be ≤500 ms, timestamp separation
+≤100 ms, clock uncertainty ≤20 ms and contributor mid dispersion ≤0.5 pips. It compares
+**quote bands**, not just mids: the gap is `max(0, our_bid - ref_ask, ref_bid - our_ask) × 10,000`.
+Three consecutive gaps ≥1.0 pip confirm OFF_MARKET. Gaps in observation time reset votes;
+duplicate/out-of-order comparisons are rejected. Five aligned observations confirm recovery.
+These are illustrative policies, not calibrated bank thresholds. A wide overlapping spread
+alone is not classified off-market. UNKNOWN is distinct from a price discrepancy.
 
-AWS uses `FX_ENABLE_LLM=true deploy/scripts/update-dashboard.sh` with the existing server-side
-provider secret. Jev remains disabled unless explicitly enabled separately. A bounded two-request
-LLM/tool loop runs inside the existing local investigation worker; this is not a validated SAM
-request/result integration. The existing optional Solace Direct mirror and SAM deployment
-scaffolding remain unchanged. Provider failure is visibly labelled as a prepared fallback.
-GitHub Pages continues to run an offline prepared replay without model calls or credentials.
+The live mini-curve compares delivered and reference mids. The three stacked feed boxes show
+price observations, Corvil packet-derived metrics and SEMP v1 TCP/Guaranteed queue metrics.
+The main chart, detailed TCP fields, reference checks and incident journal remain expandable.
+The numeric verdict and frozen comparison are visible independently of the model explanation.
+
+A confirmed event wakes the bounded two-request LLM/tool investigation. `inspect_fx_path`
+reads an immutable package containing reference contributors, price comparison, source and
+consumer evidence, Corvil/SEMP metrics and an unaffected peer. The model briefs Greg,
+identifies a supported suspect and suggests a read-only next check. Suspect categories and
+graph links are validated against the supplied comparison. The model cannot change the
+numeric verdict, invent graph nodes or perform trading/remediation actions. Grey graph links
+are measured comparisons; amber links are hypotheses, not proof of causation. A prepared
+fallback is clearly labelled if the provider fails.
+
+See [comparison policy and production boundaries](docs/off-market-design.md). Legacy AIOps
+and service-health API scenarios remain for regression testing. SEMP v1 fields still include
+SRTT/variation, retransmit deltas, windows, blocking, buffers, queue depth/oldest age,
+unacknowledged messages and ingress/egress. Queue messages are distinct from TCP send bytes.
+
+AWS uses `FX_ENABLE_LLM=true deploy/scripts/update-dashboard.sh` with existing secret references.
+Jev is disabled. The local durable worker owns investigation delivery; the optional Solace
+Direct event mirror and SAM scaffolding remain unchanged. This is not a validated end-to-end
+SAM orchestration integration or a real market-data collector deployment.
 
 
 A company-neutral, dark terminal-style demo for monitoring FX price delivery. Synthetic market conditions and regional service health are shown separately. Confirmed service incidents produce a frozen evidence summary, an owner, suggested runbook checks and a handover record. No trading or remediation actions are performed.
@@ -79,7 +99,7 @@ Open <http://localhost:8080>. Default explanations and the three desk answers ar
 - **Missing telemetry:** visibility becomes UNKNOWN, not healthy or a proven outage.
 - **Market + delivery stress:** abnormal market activity and delivery impairment together.
 
-Scenarios last twelve observations. **Restore normal** ends one early. A service incident requires three consecutive abnormal observations, recovery requires five healthy observations, and **Resolve incident** becomes available after recovery. **Acknowledge** records the demo operator action. Select an incident to see its frozen evidence and runbook. **Export handover** downloads the journal.
+The off-market scenarios last 24 observations; legacy scenarios last twelve. **Restore normal** ends one early. A service incident requires three consecutive abnormal observations, recovery requires five healthy observations, and **Resolve incident** becomes available after recovery. **Acknowledge** records the demo operator action. Select an incident to see its frozen evidence and runbook. **Export handover** downloads the journal.
 
 The two regional paths, owners, timestamps, priorities and telemetry are synthetic. The chart is a synthetic mid-price trace; it is not the older historical dataset under `data/`.
 
@@ -146,7 +166,7 @@ valid AWS SSO session are prerequisites.
 
 ### Updating price curve
 
-The main EUR/USD chart displays the simulated source mid-price and current bid/ask and spread.
+The expandable EUR/USD chart displays the simulated delivered mid-price and current bid/ask and spread.
 Choose a 1-, 3- or 5-minute window and 5-, 15- or 30-second candles. Hollow blue candles rise;
 filled blue candles fall. Hover or use arrow keys to inspect observed OHLC values. The last bar
 is forming. SMA 10 toggles a ten-candle simple moving average; the overview highlights the selected

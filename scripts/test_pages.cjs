@@ -54,7 +54,28 @@ function load(saved={}) {
       assert.equal(demo.state.incidents[0].status,'RECOVERED');
     }
   }
+  for(const [scenario,status,suspect] of [
+    ['offmarket_stale','OFF_MARKET','nyc_tcp'],['offmarket_source','OFF_MARKET','tokyo_source'],
+    ['reference_loss','UNKNOWN','reference'],['reference_outlier','WITHIN_BAND',null],
+    ['market_reprice','WITHIN_BAND',null]
+  ]) {
+    const demo=load(); await demo.api.post('/api/scenarios/'+scenario);
+    for(let i=0;i<10;i++)demo.tick();
+    assert.equal(demo.state.aiops.offmarket.status,status,scenario);
+    assert.equal(demo.state.llm_enabled,false);
+    if(suspect) {
+      assert.equal(demo.state.assessment.suspected_component,suspect);
+      assert.equal(demo.state.assessment.offmarket_at_event.status,status);
+      assert.equal(demo.state.incidents[0].status,'OPEN','Healthy network cannot recover a divergent price');
+      await demo.api.post('/api/recover');
+      for(let i=0;i<4;i++) {demo.tick(); assert.equal(demo.state.incidents[0].status,'OPEN');}
+      demo.tick(); assert.equal(demo.state.incidents[0].status,'RECOVERED');
+      assert.equal(demo.state.assessment.offmarket_at_event.status,status,'Event evidence stays frozen');
+    } else {
+      assert.equal(demo.state.assessment,null);assert.equal(demo.state.incidents.length,0);
+    }
+  }
   const html=fs.readFileSync('dist/pages/index.html','utf8');
   assert(!html.includes('/assets/') && !html.includes('/api/'));
-  console.log('Pages checks passed: five AIOps cases, five legacy scenarios, prepared causes, lifecycle, persistence, distinct IDs, relative assets.');
+  console.log('Pages checks passed: five off-market cases, five AIOps cases, five legacy scenarios, prepared causes, lifecycle, persistence, distinct IDs, relative assets.');
 })().catch(e=>{console.error(e);process.exit(1);});

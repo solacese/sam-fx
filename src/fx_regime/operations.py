@@ -13,9 +13,12 @@ from .models import ServiceHealth, ServiceObservation
 
 RUNBOOKS = {
     "aiops": {
-        "title": "FX data confidence investigation",
+        "title": "Off-market price investigation",
         "owner": "FX platform support (demo)",
         "checks": [
+            "Validate independent reference quorum, freshness, clocks and indicative spot basis.",
+            "Compare reference bid/ask, Tokyo source and NYC delivered prices and timestamps.",
+            "A market move or a single reference outlier does not prove an off-market quote.",
             "Match Corvil flow to SEMP client ID, VPN, both TCP endpoints and session epoch.",
             "Compare source freshness and NYC peer delivery before assigning a suspect component.",
             "Inspect RTT, retransmit deltas, closed transmit window and blocked percentage.",

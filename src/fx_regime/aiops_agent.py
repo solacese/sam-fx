@@ -15,12 +15,12 @@ from .models import AgentAssessment, Cause, JevDecision, RegimeChange, StrictMod
 
 class InvestigationResult(StrictModel):
     assessment: str = Field(min_length=1, max_length=900)
-    suspected_component: Literal["nyc_tcp", "nyc_queue", "tokyo_source", "unknown"]
-    evidence_ids: list[str] = Field(min_length=1, max_length=5)
+    suspected_component: Literal["nyc_tcp", "nyc_queue", "tokyo_source", "reference", "unknown"]
+    evidence_ids: list[str] = Field(min_length=1, max_length=6)
     suggested_next_investigation: str = Field(min_length=1, max_length=700)
-    hypothesis_edges: list[Literal["market_tcp", "tcp_queue", "queue_data", "tcp_data"]] = Field(
-        max_length=4
-    )
+    hypothesis_edges: list[
+        Literal["market_tcp", "tcp_queue", "queue_data", "tcp_data", "source_data"]
+    ] = Field(max_length=4)
 
 
 def prepared_assessment(
@@ -28,6 +28,8 @@ def prepared_assessment(
 ) -> AgentAssessment:
     state = change.aiops
     assert state is not None
+    if state.offmarket:
+        return prepared_offmarket(change, decisions, model)
     unknown = state.status == "UNKNOWN"
     component = (
         "unknown" if unknown else "nyc_queue" if state.scenario == "queue_pressure" else "nyc_tcp"
@@ -85,6 +87,68 @@ def prepared_assessment(
     )
 
 
+def prepared_offmarket(
+    change: RegimeChange, decisions: list[JevDecision], model: str
+) -> AgentAssessment:
+    state = change.aiops
+    assert state is not None and state.offmarket is not None
+    check = state.offmarket
+    component = {
+        "STALE_DELIVERY": "nyc_tcp",
+        "SOURCE_DIVERGENCE": "tokyo_source",
+        "REFERENCE_UNAVAILABLE": "reference",
+    }.get(check.classification, "unknown")
+    first = (
+        "Greg, the reference quorum is unavailable, so we cannot establish "
+        "whether NYC is off-market."
+        if check.status == "UNKNOWN"
+        else f"Greg, the NYC delivered quote is {check.mid_delta_pips:+.1f} pips from the "
+        f"reference mid and {check.outside_band_pips:.1f} pips outside its bid/ask band."
+    )
+    explanation = {
+        "STALE_DELIVERY": "Tokyo remains aligned with the reference while the delivered quote "
+        "is old; NYC blocking and queue growth may explain the delay.",
+        "SOURCE_DIVERGENCE": "The fresh Tokyo source already differs from the reference and "
+        "NYC follows it; Corvil and SEMP remain healthy.",
+        "REFERENCE_UNAVAILABLE": "Check reference timestamps and clock "
+        "quality before blaming delivery.",
+    }.get(check.classification, "The discrepancy is measured; its cause is not established.")
+    next_check = {
+        "STALE_DELIVERY": "Inspect FX-PRICE-NYC-01 (10.30.1.20:43172), transmit window and "
+        "NYC-FX-PRICE-Q drain rate; compare with the healthy peer.",
+        "SOURCE_DIVERGENCE": "Compare the Tokyo source's raw quotes, symbol mapping and quote "
+        "basis with the independent contributors before blaming the network.",
+        "REFERENCE_UNAVAILABLE": "Restore at least two fresh, agreeing reference contributors "
+        "and verify clock synchronization; withhold the off-market verdict.",
+    }.get(check.classification, "Compare source and delivered timestamps with the reference.")
+    return AgentAssessment(
+        correlation_id=change.correlation_id,
+        symbol=change.symbol,
+        assessment=first + " " + explanation,
+        likely_cause=Cause.INFRASTRUCTURE if component == "nyc_tcp" else Cause.UNCLEAR,
+        evidence=check.reasons + [s.summary for s in state.sources if s.source != "MARKET"],
+        evidence_refs=[s.evidence_id for s in state.sources],
+        suspected_component=component,
+        confidence_at_event=state.status,
+        offmarket_at_event=check.model_copy(deep=True),
+        checks=source_checks(state),
+        graph=explanation_graph(state, ["tcp_queue", "queue_data", "source_data"]),
+        suggested_next_investigation=next_check,
+        model=model,
+        jev_decisions=decisions,
+        degraded=model != "deterministic-fallback",
+        limitations=[
+            "All prices, reference contributors, Corvil and SEMP readings are simulated.",
+            "Off-market means outside a like-for-like indicative reference band, not proven "
+            "fair value, an executable arbitrage or a trading recommendation.",
+            "1.0 pip tolerance, 500 ms reference age, 100 ms alignment, 20 ms clock uncertainty, "
+            "0.5 pip contributor agreement, three confirmations and five "
+            "recovery samples are demo policy.",
+            "Reference independence is assumed in this simulation. Production requires validation.",
+        ],
+    )
+
+
 async def investigate(
     change: RegimeChange, decisions: list[JevDecision], api_key: str, model: str, timeout: float
 ) -> AgentAssessment:
@@ -102,7 +166,8 @@ async def investigate(
                 "description": (
                     "Read the frozen simulated Market, Corvil and SEMP v1 observations,"
                     " including the NYC TCP session, Guaranteed queue, consumer "
-                    "freshness and unaffected peer."
+                    "freshness, independent reference quotes, comparison verdict and "
+                    "unaffected peer."
                 ),
                 "parameters": {
                     "type": "object",
@@ -118,7 +183,17 @@ async def investigate(
             "role": "system",
             "content": (
                 "You are the FX AIOps investigator briefing Greg. Call inspect_fx_path first. "
-                "All telemetry is synthetic. Diagnose performance and data freshness. "
+                "All prices and telemetry are synthetic. When offmarket is supplied, "
+                "the deterministic "
+                "comparator owns its verdict and numbers. First state whether the delivered price "
+                "is OFF_MARKET, SUSPECTED or UNKNOWN relative to the indicative reference band. "
+                "Do not equate a market move or infrastructure anomaly with an off-market quote. "
+                "Compare reference vs Tokyo source vs NYC delivered, on the same quote basis. "
+                "A fresh source divergence with healthy infrastructure suggests a source/pricing "
+                "issue, not TCP. An aligned source plus stale divergent delivery can implicate "
+                "the NYC path. An unavailable quorum means withhold the off-market verdict and "
+                "inspect reference quality; never claim the price is wrong. "
+                "Diagnose performance and data freshness. "
                 "A market burst alone does not imply bad data. Distinguish TCP send bytes "
                 "from Guaranteed queue messages. A closed transmit window and sustained "
                 "broker blocking suggest receiver backpressure. Retransmissions do not "
@@ -166,9 +241,15 @@ async def investigate(
                 "role": "user",
                 "content": (
                     "Return JSON: assessment (2 short sentences for Greg), suspected_component "
-                    "(nyc_tcp, nyc_queue, tokyo_source, unknown), evidence_ids (from tool), "
+                    "(nyc_tcp, nyc_queue, tokyo_source, reference, unknown), "
+                    "evidence_ids (from tool), "
                     "suggested_next_investigation, hypothesis_edges (subset of market_tcp, "
-                    "tcp_queue, queue_data, tcp_data). If stale, use unknown and no edges. "
+                    "tcp_queue, queue_data, tcp_data, source_data). If reference quorum "
+                    "is unavailable, "
+                    "use reference or unknown and no causal edges. If technical "
+                    "telemetry is stale, "
+                    "use unknown and no edges. For off-market cases include reference and "
+                    "data_quality evidence_ids. Use source_data only for SOURCE_DIVERGENCE. "
                     "Use market_tcp only for tokyo_burst; tcp_queue only when TCP and queue "
                     "both deteriorate; queue_data when queue and quote age rise; tcp_data "
                     "for TCP pressure without queue growth. Use likely/suspect language. "
@@ -187,8 +268,22 @@ async def investigate(
         known = {s.evidence_id: s for s in state.sources}
         if any(ref not in known for ref in result.evidence_ids):
             raise ValueError("Unknown evidence reference")
-        if state.status == "UNKNOWN" and (
-            result.suspected_component != "unknown" or result.hypothesis_edges
+        if state.offmarket:
+            allowed = {
+                "STALE_DELIVERY": {"nyc_tcp", "nyc_queue", "unknown"},
+                "SOURCE_DIVERGENCE": {"tokyo_source", "unknown"},
+                "REFERENCE_UNAVAILABLE": {"reference", "unknown"},
+            }.get(state.offmarket.classification, {"unknown"})
+            if result.suspected_component not in allowed:
+                raise ValueError("Suspect contradicts frozen quote comparison")
+            if not {"reference", "data_quality"} <= set(result.evidence_ids):
+                raise ValueError("Off-market brief must cite the price comparison")
+            if state.offmarket.status == "UNKNOWN" and result.hypothesis_edges:
+                raise ValueError("Reference failure cannot establish a causal price chain")
+        if (
+            not state.offmarket
+            and state.status == "UNKNOWN"
+            and (result.suspected_component != "unknown" or result.hypothesis_edges)
         ):
             raise ValueError("Missing telemetry cannot establish a suspect connection")
         assessment = prepared_assessment(change, decisions, model)
