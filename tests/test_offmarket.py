@@ -133,8 +133,14 @@ async def test_end_to_end_offmarket_cases_and_recovery(scenario, status, classif
             ]
         if scenario == "reference_loss":
             assert not a.graph.edges
-        for _ in range(4):
+        reference_before_recovery = check.reference_mid
+        for healthy_index in range(4):
             await engine._sample("baseline", 0)
+            if healthy_index == 0 and scenario == "offmarket_stale":
+                assert (
+                    abs(engine.state.aiops.offmarket.reference_mid - reference_before_recovery)
+                    < 0.00002
+                )
             assert engine.state.incidents[0].status == "OPEN"
         await engine._sample("baseline", 0)
         assert engine.state.incidents[0].status == "RECOVERED"

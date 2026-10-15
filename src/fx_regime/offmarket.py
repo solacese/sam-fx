@@ -196,14 +196,19 @@ class QuoteSimulation:
     def __init__(self) -> None:
         self.detector = OffMarketDetector()
         self.frozen_mid: float | None = None
+        self.market_shift = 0.0
+        self.stepped = False
 
     def observe(self, scenario: str, offset: int, now: datetime, fair_mid: float) -> OffMarketState:
         from datetime import timedelta
 
         moved = scenario in {"offmarket_stale", "market_reprice"} and offset >= 2
-        reference_mid = fair_mid + (0.0018 if moved else 0)
+        if moved and not self.stepped:
+            self.market_shift += 0.0018
+            self.stepped = True
+        reference_mid = fair_mid + self.market_shift
         if scenario != "offmarket_stale" or offset < 2:
-            self.frozen_mid = fair_mid
+            self.frozen_mid = reference_mid
         source_mid = reference_mid + (
             0.0006 if scenario == "offmarket_source" and offset >= 2 else 0
         )
