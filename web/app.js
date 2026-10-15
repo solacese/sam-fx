@@ -64,7 +64,7 @@ function render(s) {
   const a = incident?.assessment || (!incident ? s.assessment : null);
   const change = incident ? null : s.last_change;
   const book = incident ? books[incident.runbook] : null;
-  $('explanation-mode').textContent = a ? (a.model.includes('fallback') ? 'Prepared rules' : 'Model explanation') : 'Awaiting evidence';
+  $('explanation-mode').textContent = a ? (a.model.includes('fallback') ? 'Prepared rules' : 'LLM hypothesis') : 'Awaiting evidence';
   setHTML('evidence', `${incident?`<div class="meta"><span>${esc(incident.owner)}</span><span>${esc(incident.region)}</span><span>${esc(incident.correlation_id.slice(0,8))}</span><span>Frozen at ${time(incident.opened_at)}</span></div>`:change?`<div class="meta"><span>${change.event==='FX_REGIME_CHANGE'?'Market advisory':'Service incident'}</span><span>${esc(change.correlation_id.slice(0,8))}</span></div>`:''}
     <h3>${esc(a?.assessment || (incident ? incident.title : 'Ready for the next confirmed event.'))}</h3>
     ${a?`<div class="meta"><span>${esc(a.likely_cause)}</span><span>${window.SamFxDemo?'Prepared replay':a.latency_ms+' ms worker time'}</span><span>${a.degraded?'Fallback used':a.model==='deterministic-fallback'?'Prepared rules':'Configured provider'}</span></div><ul>${a.evidence.map(e=>`<li>${esc(e)}</li>`).join('')}</ul><h3>Next investigation</h3><p>${esc(a.suggested_next_investigation)}</p>`: `<p>${esc(incident?.impact || 'Numeric monitoring runs every second. Confirmed service incidents create a frozen evidence package for explanation. Select an incident to inspect its owner and runbook.')}</p>${incident?`<ul>${incident.evidence.map(e=>`<li>${esc(e)}</li>`).join('')}</ul>`:''}`}

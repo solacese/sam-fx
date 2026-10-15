@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from typing import Any, Literal
 
@@ -187,6 +188,9 @@ async def investigate(
                 "the deterministic "
                 "comparator owns its verdict and numbers. First state whether the delivered price "
                 "is OFF_MARKET, SUSPECTED or UNKNOWN relative to the indicative reference band. "
+                "The dashboard renders exact price and pip figures from the detector separately. "
+                "For offmarket packages, never put pip quantities or the word pips in assessment. "
+                "Focus that text on the suspected explanation; use may/could for causal claims. "
                 "Do not equate a market move or infrastructure anomaly with an off-market quote. "
                 "Compare reference vs Tokyo source vs NYC delivered, on the same quote basis. "
                 "A fresh source divergence with healthy infrastructure suggests a source/pricing "
@@ -269,6 +273,8 @@ async def investigate(
         if any(ref not in known for ref in result.evidence_ids):
             raise ValueError("Unknown evidence reference")
         if state.offmarket:
+            if re.search(r"\bpips?\b", result.assessment, flags=re.IGNORECASE):
+                raise ValueError("Price-gap quantities belong to deterministic comparison fields")
             allowed = {
                 "STALE_DELIVERY": {"nyc_tcp", "nyc_queue", "unknown"},
                 "SOURCE_DIVERGENCE": {"tokyo_source", "unknown"},

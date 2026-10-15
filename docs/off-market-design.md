@@ -29,7 +29,8 @@ venue-, liquidity-, size- and workload-specific policies and independently quali
 The tolerance is configurable in source only in this v1; it is not empirically calibrated.
 
 The comparator owns OFF_MARKET / SUSPECTED / WITHIN_BAND / UNKNOWN. The model cannot override
-this. A frozen event retains bid/ask, contributor observations, reasons and age for audit even
+this. Pip quantities are displayed from structured detector fields; a model brief that restates
+pip quantities is rejected in favor of the prepared explanation. A frozen event retains bid/ask, contributor observations, reasons and age for audit even
 when the live feeds recover. Model suspects are constrained to the evidence: a fresh source
 mismatch with normal transport cannot be labelled a TCP fault, while a reference quorum
 failure cannot establish any price-propagation causal chain.
