@@ -228,6 +228,7 @@ async def investigate(
                 "NETWORK_DEGRADATION (retransmissions, open window), and ACK_STALL (healthy TCP, "
                 "delivered-unacked limit reached). TCP ACKs are not application settlement. "
                 "Blocked percentage is about the last minute, not an instantaneous sample. "
+                "Queue growth means backlog, not a full queue: no queue capacity is supplied. "
                 "Corvil and CLI TCP counters may be the same fault, never "
                 "independent confidence votes. "
                 "Only identity-matched, fresh captures on the AD-active broker "
@@ -273,11 +274,34 @@ async def investigate(
         messages.append(
             {"role": "tool", "tool_call_id": call.id, "content": state.model_dump_json()}
         )
+        attribution_scope = ""
+        if state.offmarket and state.diagnosis:
+            supported = state.diagnosis.suspected_component
+            attribution_scope = (
+                f" This incident's supported hypothesis is {state.diagnosis.hypothesis}. "
+                f'suspected_component must be exactly {json.dumps(supported)} or "unknown". '
+                "Do not substitute a geographic location or a different component. "
+            )
+            if supported == "unknown":
+                attribution_scope += (
+                    "The missing/conflicting technical evidence prevents localization: "
+                    'set suspected_component to "unknown" and hypothesis_edges to []. '
+                    "Retain the confirmed off-market price verdict; explain the evidence gap. "
+                    "A suitable assessment is: The delivered EUR/USD quote is OFF_MARKET "
+                    "against a valid reference. Its cause remains unconfirmed because "
+                    "broker CLI evidence is unavailable or not trustworthy. "
+                )
+            elif state.diagnosis.hypothesis == "ACK_STALL":
+                attribution_scope += (
+                    "Explain that the delivered-unacked limit is reached while TCP is healthy; "
+                    "do not describe a closed TCP window or prove an application root cause. "
+                )
         messages.append(
             {
                 "role": "user",
                 "content": (
-                    "Return JSON: assessment (2 short sentences for Greg), suspected_component "
+                    "Return JSON: assessment (2 short sentences for Greg; do not include "
+                    "pip measurements or the word pip/pips), suspected_component "
                     "(nyc_tcp, nyc_queue, nyc_consumer, nyc_network, nyc_application, "
                     "tokyo_source, reference, unknown), "
                     "evidence_ids (from tool), "
@@ -292,6 +316,7 @@ async def investigate(
                     "both deteriorate; queue_data when queue and quote age rise; tcp_data "
                     "for TCP pressure without queue growth. Use likely/suspect language. "
                     "Every causal statement must use may, could or likely. No proven cause."
+                    + attribution_scope
                 ),
             }
         )

@@ -154,13 +154,21 @@ async def test_end_to_end_offmarket_cases_and_recovery(scenario, status, classif
 
 
 @pytest.mark.parametrize(
-    "bad_component,bad_assessment",
+    "scenario,expected_component,bad_component,bad_assessment",
     [
-        ("nyc_tcp", "A TCP fault caused the price error."),
-        ("tokyo_source", "The price differs by 6 pips from the reference band."),
+        ("offmarket_source", "tokyo_source", "nyc_tcp", "A TCP fault caused the price error."),
+        (
+            "offmarket_source",
+            "tokyo_source",
+            "tokyo_source",
+            "The price differs by 6 pips from the reference band.",
+        ),
+        ("offmarket_blind", "unknown", "nyc_consumer", "The consumer caused the stale price."),
     ],
 )
-async def test_llm_cannot_override_frozen_comparison(monkeypatch, bad_component, bad_assessment):
+async def test_llm_cannot_override_frozen_comparison(
+    monkeypatch, scenario, expected_component, bad_component, bad_assessment
+):
     import json
     from types import SimpleNamespace
 
@@ -168,9 +176,10 @@ async def test_llm_cannot_override_frozen_comparison(monkeypatch, bad_component,
         RegimeDetector(), JevClient(""), GroqAgent("", "prepared"), SolaceBus(""), tick_seconds=0
     )
     for i in range(8):
-        await engine._sample("offmarket_source", i)
+        await engine._sample(scenario, i)
     await engine.drain()
-    assert engine.state.service_condition == "HEALTHY"
+    if scenario == "offmarket_source":
+        assert engine.state.service_condition == "HEALTHY"
     change = engine.state.last_change
     calls = []
 
@@ -211,11 +220,15 @@ async def test_llm_cannot_override_frozen_comparison(monkeypatch, bad_component,
     assessment = await GroqAgent("key", "test-model").explain(change, JevClient._fallback(change))
     assert len(calls) == 2
     assert assessment.degraded and "fallback" in assessment.model
-    assert assessment.suspected_component == "tokyo_source"
+    assert assessment.suspected_component == expected_component
     assert assessment.offmarket_at_event.status == "OFF_MARKET"
-    assert [e.edge_id for e in assessment.graph.edges] == [
-        "reference_data",
-        "reference_source",
-        "source_data",
-    ]
+    assert [e.edge_id for e in assessment.graph.edges] == (
+        [
+            "reference_data",
+            "reference_source",
+            "source_data",
+        ]
+        if scenario == "offmarket_source"
+        else ["reference_data", "reference_source"]
+    )
     engine.store.db.close()
