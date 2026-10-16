@@ -38,7 +38,7 @@ failure cannot establish any price-propagation causal chain.
 ## Why and where
 
 - Source aligned, consumer stale and divergent: inspect delivery path. Corvil RTT/retransmits,
-  SEMP closed transmit window/blocking, queue depth and peer observations support a hypothesis.
+  broker CLI closed transmit window/blocking, queue depth and peer observations support a hypothesis.
 - Fresh source divergent, consumer follows it, transport healthy: inspect source mapping,
   pricing inputs or quote basis. This does not identify an actual misconfiguration by itself.
 - Reference unavailable: repair/validate the comparison evidence before assigning a price fault.
@@ -47,9 +47,10 @@ failure cannot establish any price-propagation causal chain.
 
 Corvil describes packet-derived, time-synchronized evidence and one-second RTT,
 retransmission and congestion metrics in its [official product description](https://www.pico.net/products/corvil-analytics/).
-Those fields are simulated here; no collector or packet capture is connected. The existing
-SEMP v1 simulation remains based on client TCP and Guaranteed queue observations. See
-[Solace's SEMP v1 documentation](https://docs.solace.com/Admin/SEMP/Using-Legacy-SEMP.htm).
+Those fields are simulated here; no collector or packet capture is connected. The third feed is
+now a **broker CLI evidence pack**, covering the exact client/connection, queue, egress flow,
+limits, rates, congestion and broker role. See [the detailed proposal](three-feed-investigation.md)
+and [Solace's client/TCP CLI documentation](https://docs.solace.com/Security/Viewing-Client-Config-Info.htm).
 
 Daily central-bank reference rates are unsuitable as an intraday quote comparator: the
 [ECB states](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html)
@@ -70,4 +71,4 @@ a source; add source lineage and alternate references for a production pilot.
 The demo does not automatically switch feeds, restart consumers, change pricing or trade. AWS
 uses a local durable investigation worker and real configured LLM calls over synthetic evidence;
 GitHub Pages is a prepared browser replay. Actual SAM request/result orchestration, live
-Corvil/SEMP collectors and production price feeds remain integration work.
+Corvil / broker CLI collectors and production price feeds remain integration work.

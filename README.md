@@ -4,15 +4,20 @@
 
 The primary demo asks **“Are we off-market, and why?”** Compare the **NYC delivered quote**,
 **Tokyo source quote** and **independent-path reference consensus**. All prices, reference
-contributors, Corvil metrics and Solace SEMP v1 observations remain simulated. AWS can use
+contributors, Corvil metrics and Solace broker CLI observations remain simulated. AWS can use
 its configured server-side LLM; Pages runs prepared explanations with no provider requests.
 
-Five controls tell the story:
+Eight always-visible controls tell the story:
 
-- **Simulate stale delivery:** the reference and Tokyo source reprice by 18 pips while NYC
-  retains its old quote. Corvil RTT and retransmissions increase, the SEMP transmit window
+- **Consumer blocked:** the reference and Tokyo source reprice by 18 pips while NYC
+  retains its old quote. Corvil observes zero-window evidence with normal network RTT, the broker TCP transmit window
   closes, and Guaranteed queue depth rises. The investigation may localize delivery pressure
   to `FX-PRICE-NYC-01`, consumer `10.30.1.20:43172`, and `NYC-FX-PRICE-Q`.
+- **Network degradation:** reference/source move while NYC ages; Corvil retransmits and RTT
+  rise with an open receive window, corroborated by broker TCP counters.
+- **ACK stall:** TCP is healthy; flow 42 reaches its delivered-unacked limit. Investigate
+  application acknowledgement/processing progress rather than the wire.
+- **CLI unavailable:** the price discrepancy is confirmed but the technical cause is withheld.
 - **Source divergence:** the fresh Tokyo quote is 6 pips from the reference; NYC follows it.
   Infrastructure is healthy. Investigate the source/pricing configuration, not TCP.
 - **Real market move:** all price views follow the move. No off-market incident or LLM call.
@@ -30,21 +35,22 @@ These are illustrative policies, not calibrated bank thresholds. A wide overlapp
 alone is not classified off-market. UNKNOWN is distinct from a price discrepancy.
 
 The live mini-curve compares delivered and reference mids. The three stacked feed boxes show
-price observations, Corvil packet-derived metrics and SEMP v1 TCP/Guaranteed queue metrics.
+price observations, Corvil packet-derived metrics and broker CLI TCP/Guaranteed queue metrics.
 The main chart, detailed TCP fields, reference checks and incident journal remain expandable.
 The numeric verdict and frozen comparison are visible independently of the model explanation.
 
 A confirmed event wakes the bounded two-request LLM/tool investigation. `inspect_fx_path`
 reads an immutable package containing reference contributors, price comparison, source and
-consumer evidence, Corvil/SEMP metrics and an unaffected peer. The model briefs Greg,
+consumer evidence, Corvil / broker CLI metrics and an unaffected peer. The model briefs Greg,
 identifies a supported suspect and suggests a read-only next check. Suspect categories and
 graph links are validated against the supplied comparison. The model cannot change the
 numeric verdict, invent graph nodes or perform trading/remediation actions. Grey graph links
 are measured comparisons; amber links are hypotheses, not proof of causation. A prepared
 fallback is clearly labelled if the provider fails.
 
-See [comparison policy and production boundaries](docs/off-market-design.md). Legacy AIOps
-and service-health API scenarios remain for regression testing. SEMP v1 fields still include
+See [the three-feed diagnostic proposal](docs/three-feed-investigation.md) and
+[comparison policy and production boundaries](docs/off-market-design.md). Legacy AIOps
+and service-health API scenarios remain for regression testing. broker CLI fields still include
 SRTT/variation, retransmit deltas, windows, blocking, buffers, queue depth/oldest age,
 unacknowledged messages and ingress/egress. Queue messages are distinct from TCP send bytes.
 

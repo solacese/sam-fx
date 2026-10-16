@@ -35,7 +35,7 @@ def test_multi_source_confidence_confirmation_and_recovery():
     assert frames[4].status == "AT_RISK" and frames[4].confirmed
     assert frames[-1].status == "IMPAIRED"
     assert [s.change_offset_s for s in frames[4].sources] == [0, 2, 2, 3, 4]
-    assert {s.source for s in frames[-1].sources} >= {"MARKET", "CORVIL", "SEMP_V1"}
+    assert {s.source for s in frames[-1].sources} >= {"MARKET", "CORVIL", "BROKER_CLI"}
     for i in range(5):
         healthy = monitor.observe("baseline", 0, now + timedelta(seconds=12 + i), FeatureValues())
         assert healthy.confirmed == (i == 4)
@@ -134,7 +134,7 @@ async def test_llm_must_call_scoped_tool_and_use_known_evidence(monkeypatch):
                 else SimpleNamespace(
                     content=(
                         '{"assessment":"Greg, suspect NYC receiver backpressure.",'
-                        '"suspected_component":"nyc_tcp","evidence_ids":["corvil_tcp","semp_tcp"],'
+                        '"suspected_component":"nyc_tcp","evidence_ids":["corvil_tcp","broker_tcp"],'
                         '"suggested_next_investigation":"Compare the peer.",'
                         '"hypothesis_edges":["market_tcp","tcp_queue","queue_data"]}'
                     )
@@ -153,7 +153,7 @@ async def test_llm_must_call_scoped_tool_and_use_known_evidence(monkeypatch):
     assert len(calls) == 2 and not result.degraded
     assert calls[0]["tool_choice"]["function"]["name"] == "inspect_fx_path"
     assert any(m["role"] == "tool" and "43172" in m["content"] for m in calls[1]["messages"])
-    assert result.evidence_refs == ["corvil_tcp", "semp_tcp"]
+    assert result.evidence_refs == ["corvil_tcp", "broker_tcp"]
     assert result.suspected_component == "nyc_tcp"
     engine.store.db.close()
 

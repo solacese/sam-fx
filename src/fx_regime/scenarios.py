@@ -198,7 +198,17 @@ class ScenarioEngine:
             values.quote_rate = 180 if scenario in {"tokyo_burst", "market_only"} else 80
         if scenario in OFFMARKET_SCENARIOS:
             values.spread_pips = 0.8
-            if scenario in {"offmarket_stale", "market_reprice"} and offset >= 2:
+            if (
+                scenario
+                in {
+                    "offmarket_stale",
+                    "offmarket_network",
+                    "offmarket_ack",
+                    "offmarket_blind",
+                    "market_reprice",
+                }
+                and offset >= 2
+            ):
                 values.realized_volatility, values.quote_rate = 0.00022, 180
         if infrastructure:
             values.solace_latency_ms, values.consumer_lag = 155, 130
@@ -253,11 +263,11 @@ class ScenarioEngine:
                     owner="FX platform support (demo)",
                     timestamp=a.sources[1].timestamp,
                     delivery_mode="GUARANTEED",
-                    ingress_rate=float(source["semp_queue"]["ingress_rate"]),
-                    egress_rate=float(source["semp_queue"]["egress_rate"]),
+                    ingress_rate=float(source["broker_queue"]["ingress_rate"]),
+                    egress_rate=float(source["broker_queue"]["egress_rate"]),
                     quote_age_ms=float(source["data_quality"]["quote_age_ms"]),
-                    backlog=int(source["semp_queue"]["queue_depth"]),
-                    oldest_message_ms=float(source["semp_queue"]["oldest_message_ms"]),
+                    backlog=int(source["broker_queue"]["queue_depth"]),
+                    oldest_message_ms=float(source["broker_queue"]["oldest_message_ms"]),
                     p99_latency_ms=float(source["corvil_tcp"]["rtt_ms"]),
                 ),
             ]
@@ -506,7 +516,7 @@ class ScenarioEngine:
                         self.state.workflow_stage = "agent_running"
                         self._timeline(
                             "evidence",
-                            "Corvil, SEMP v1 and market evidence frozen; investigation started"
+                            "Corvil, broker CLI and market evidence frozen; investigation started"
                             if change.aiops
                             else "Frozen service evidence classified; explanation started",
                         )

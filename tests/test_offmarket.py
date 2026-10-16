@@ -101,7 +101,10 @@ def test_confirmation_gaps_and_distinct_recovery_observations():
 @pytest.mark.parametrize(
     "scenario,status,classification,suspect",
     [
-        ("offmarket_stale", "OFF_MARKET", "STALE_DELIVERY", "nyc_tcp"),
+        ("offmarket_stale", "OFF_MARKET", "STALE_DELIVERY", "nyc_consumer"),
+        ("offmarket_network", "OFF_MARKET", "STALE_DELIVERY", "nyc_network"),
+        ("offmarket_ack", "OFF_MARKET", "STALE_DELIVERY", "nyc_application"),
+        ("offmarket_blind", "OFF_MARKET", "STALE_DELIVERY", "unknown"),
         ("offmarket_source", "OFF_MARKET", "SOURCE_DIVERGENCE", "tokyo_source"),
         ("reference_loss", "UNKNOWN", "REFERENCE_UNAVAILABLE", "reference"),
         ("reference_outlier", "WITHIN_BAND", "ALIGNED", None),

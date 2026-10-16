@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from statistics import median
 from typing import Literal
 
+from .broker_cli import diagnose
+from .broker_cli import snapshot as cli_snapshot
 from .models import (
     ConfidenceState,
     ExplanationEdge,
@@ -38,6 +40,7 @@ CONNECTION = {
     "remote": "10.30.1.20:43172",
     "queue": "NYC-FX-PRICE-Q",
     "session_epoch": "demo-session-01",
+    "broker_epoch": "demo-boot-01",
     "delivery": "GUARANTEED",
 }
 # Floors prevent zeros/near-constant baseline metrics from creating infinite scores.
@@ -76,17 +79,39 @@ class ConfidenceMonitor:
         if self.last and (now - self.last).total_seconds() != 1:
             self.votes = self.healthy_votes = 0
         self.last = now
-        burst = scenario in {"tokyo_burst", "market_only", "offmarket_stale", "market_reprice"}
+        burst = scenario in {
+            "tokyo_burst",
+            "market_only",
+            "offmarket_stale",
+            "offmarket_network",
+            "offmarket_ack",
+            "offmarket_blind",
+            "market_reprice",
+        }
         tcp = scenario == "tcp_pressure" or (
-            scenario in {"tokyo_burst", "offmarket_stale"} and offset >= 2
+            scenario in {"tokyo_burst", "offmarket_stale", "offmarket_network"} and offset >= 2
         )
         queue = scenario == "queue_pressure" or (
-            scenario in {"tokyo_burst", "offmarket_stale"} and offset >= 3
+            scenario
+            in {
+                "tokyo_burst",
+                "offmarket_stale",
+                "offmarket_network",
+                "offmarket_ack",
+                "offmarket_blind",
+            }
+            and offset >= 3
         )
         missing = scenario == "aiops_unknown"
         values = dict(NORMAL)
         if tcp:
             values.update(rtt_ms=42.0, retransmit_pct=3.8, blocked_pct=68.0)
+        if scenario == "offmarket_stale" and offset >= 2:
+            values.update(
+                rtt_ms=1.4, retransmit_pct=0.02, blocked_pct=min(100.0, (offset - 1) / 60 * 100)
+            )
+        if scenario == "offmarket_network" and offset >= 2:
+            values["blocked_pct"] = 0.0
         if queue:
             values["queue_depth"] = 850.0 + offset * 70
         if (tcp or queue) and (scenario != "tokyo_burst" or offset >= 4):
@@ -154,7 +179,7 @@ class ConfidenceMonitor:
             )
         if tcp:
             reasons.append(
-                "Corvil RTT/retransmissions and SEMP TCP blocking agree on the New York connection."
+                "Corvil path evidence and broker CLI session/flow statistics are compared for NYC."
             )
         if queue:
             reasons.append(
@@ -163,7 +188,7 @@ class ConfidenceMonitor:
             )
         if missing:
             reasons.append(
-                "Corvil and SEMP observations are stale; data quality cannot be established."
+                "Corvil and broker CLI observations are stale; data quality cannot be established."
             )
         if values["quote_age_ms"] >= 1000:
             reasons.append("Consumer quote age exceeds the illustrative 1,000 ms freshness budget.")
@@ -173,6 +198,9 @@ class ConfidenceMonitor:
             for key, value in values.items():
                 self.baseline[key].append(value)
         measured = now - timedelta(seconds=10) if missing else now
+        network = scenario == "offmarket_network" and offset >= 2
+        consumer = scenario == "offmarket_stale" and offset >= 2
+        ack_stall = scenario == "offmarket_ack" and offset >= 3
         sources = [
             SourceEvidence(
                 change_offset_s=0 if burst else None,
@@ -204,9 +232,22 @@ class ConfidenceMonitor:
                 metrics={
                     "rtt_ms": values["rtt_ms"],
                     "retransmit_pct": values["retransmit_pct"],
-                    "path_p99_ms": 160.0 + (320.0 if tcp or queue else 0.0),
+                    "path_p99_ms": 480.0
+                    if network
+                    else 1.8
+                    if offmarket_mode
+                    else 160.0 + (320.0 if tcp or queue else 0.0),
+                    "source_to_broker_p99_ms": 1.1,
+                    "broker_to_consumer_p99_ms": 480.0 if network else 1.8,
+                    "peer_receive_window_bytes": 0.0 if consumer else 65536.0,
+                    "zero_window_probes_delta": 2.0 if consumer else 0.0,
                     "peer_rtt_ms": 1.3,
                     "capture_drops": 0.0,
+                    "capture_clock_uncertainty_us": 10.0,
+                    "client_id": CONNECTION["client_id"],
+                    "local_endpoint": CONNECTION["local"],
+                    "remote_endpoint": CONNECTION["remote"],
+                    "session_epoch": CONNECTION["session_epoch"],
                     "peer_quote_age_ms": 85.0,
                 },
             ),
@@ -214,22 +255,33 @@ class ConfidenceMonitor:
                 change_offset_s=(2 if scenario in {"tokyo_burst", "offmarket_stale"} else 0)
                 if tcp
                 else None,
-                evidence_id="semp_tcp",
-                source="SEMP_V1",
-                timestamp=measured,
+                evidence_id="broker_tcp",
+                source="BROKER_CLI",
+                timestamp=now - timedelta(seconds=30)
+                if scenario == "offmarket_blind"
+                else measured,
                 region="NEW_YORK",
-                summary="Simulated show client FX-PRICE-NYC-01 connections wide (SEMP v1).",
+                summary="Normalized simulated broker CLI TCP connection statistics.",
                 metrics={
                     "srtt_us": values["rtt_ms"] * 1000,
-                    "rttvar_us": 9600.0 if tcp else 120.0,
-                    "fast_retransmit_delta": 38.0 if tcp else 0.0,
-                    "timed_retransmit_delta": 6.0 if tcp else 0.0,
+                    "rttvar_us": 120.0 if consumer else 9600.0 if tcp else 120.0,
+                    "fast_retransmit_delta": 0.0 if consumer else 38.0 if tcp else 0.0,
+                    "timed_retransmit_delta": 0.0 if consumer else 6.0 if tcp else 0.0,
                     "blocked_pct": values["blocked_pct"],
                     "send_queue_bytes": 524288.0 if tcp else 1024.0,
                     "receive_queue_bytes": 4096.0 if tcp else 0.0,
                     "advertised_window_bytes": 65536.0,
-                    "transmit_window_bytes": 0.0 if tcp else 65536.0,
-                    "congestion_window_bytes": 5840.0 if tcp else 131072.0,
+                    "transmit_window_bytes": 65536.0 if network else 0.0 if tcp else 65536.0,
+                    "congestion_window_bytes": 131072.0
+                    if consumer
+                    else 5840.0
+                    if tcp
+                    else 131072.0,
+                    "slow_start_threshold_bytes": 5840.0 if network else 65536.0,
+                    "received_out_of_order_delta": 6.0 if network else 0.0,
+                    "blocked_window_seconds": 60.0,
+                    "counter_interval_seconds": 1.0,
+                    "client_egress_queue_bytes": 65536.0 if consumer else 2048.0,
                     "tcp_state": "ESTABLISHED",
                 },
             ),
@@ -237,9 +289,11 @@ class ConfidenceMonitor:
                 change_offset_s=(3 if scenario in {"tokyo_burst", "offmarket_stale"} else 0)
                 if queue
                 else None,
-                evidence_id="semp_queue",
-                source="SEMP_V1",
-                timestamp=measured,
+                evidence_id="broker_queue",
+                source="BROKER_CLI",
+                timestamp=now - timedelta(seconds=30)
+                if scenario == "offmarket_blind"
+                else measured,
                 region="NEW_YORK",
                 summary=(
                     "Simulated Guaranteed queue statistics; queue backlog is distinct "
@@ -249,8 +303,36 @@ class ConfidenceMonitor:
                     "queue_depth": values["queue_depth"],
                     "oldest_message_ms": values["quote_age_ms"] if queue else 20.0,
                     "ingress_rate": 180.0 if burst else market.quote_rate,
-                    "egress_rate": 24.0 if queue else 180.0 if burst else market.quote_rate,
-                    "unacked_messages": 120.0 if queue else 1.0,
+                    "egress_rate": 0.0
+                    if ack_stall or consumer
+                    else 24.0
+                    if queue
+                    else 180.0
+                    if burst
+                    else market.quote_rate,
+                    "unacked_messages": 128.0
+                    if ack_stall
+                    else 32.0
+                    if consumer
+                    else 64.0
+                    if network
+                    else 120.0
+                    if queue
+                    else 1.0,
+                    "max_delivered_unacked_per_flow": 128.0,
+                    "unacked_limit_headroom": 0.0
+                    if ack_stall
+                    else 96.0
+                    if consumer
+                    else 64.0
+                    if network
+                    else 8.0
+                    if queue
+                    else 127.0,
+                    "flow_id": 42.0,
+                    "flow_state": "ACTIVE",
+                    "redelivered_delta": 0.0,
+                    "expired_delta": 0.0,
                 },
             ),
             SourceEvidence(
@@ -291,7 +373,7 @@ class ConfidenceMonitor:
                     },
                 )
             )
-        return ConfidenceState(
+        result = ConfidenceState(
             status=status,
             confirmed=confirmed,
             scenario=scenario,
@@ -306,6 +388,10 @@ class ConfidenceMonitor:
             connection=CONNECTION,
             onset=self.onset,
         )
+        result.broker_cli = cli_snapshot(result)
+        if result.offmarket:
+            result.diagnosis = diagnose(result)
+        return result
 
 
 def source_checks(state: ConfidenceState) -> list[InvestigationCheck]:
@@ -324,8 +410,8 @@ def source_checks(state: ConfidenceState) -> list[InvestigationCheck]:
         ),
         InvestigationCheck(
             name="Inspect TCP windows, retransmits and Guaranteed queue",
-            source="SEMP_V1",
-            evidence_ids=["semp_tcp", "semp_queue", "data_quality"],
+            source="BROKER_CLI",
+            evidence_ids=["broker_tcp", "broker_queue", "data_quality"],
         ),
     ]
 
@@ -335,7 +421,7 @@ def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> Expla
         return offmarket_graph(state, requested)
     sources = {s.evidence_id: s for s in state.sources}
     market, tcp, queue, quality = [
-        sources[k].metrics for k in ("market", "semp_tcp", "semp_queue", "data_quality")
+        sources[k].metrics for k in ("market", "broker_tcp", "broker_queue", "data_quality")
     ]
     nodes = [
         ExplanationNode(
@@ -347,20 +433,26 @@ def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> Expla
             evidence_ids=["market"],
         ),
         ExplanationNode(
-            change_offset_s=sources["semp_tcp"].change_offset_s,
+            change_offset_s=sources["broker_tcp"].change_offset_s,
             node_id="nyc_tcp",
             label="NYC consumer port 43172",
             region="NEW YORK",
             detail=f"RTT {float(tcp['srtt_us']) / 1000:.1f} ms · blocked {tcp['blocked_pct']:.0f}%",
-            evidence_ids=["corvil_tcp", "semp_tcp"],
+            evidence_ids=["corvil_tcp", "broker_tcp"],
         ),
         ExplanationNode(
-            change_offset_s=sources["semp_queue"].change_offset_s,
+            change_offset_s=sources["broker_queue"].change_offset_s,
             node_id="nyc_queue",
             label="NYC-FX-PRICE-Q",
             region="NEW YORK",
-            detail=f"{queue['queue_depth']:.0f} queued · Guaranteed",
-            evidence_ids=["semp_queue"],
+            detail=(
+                f"Flow 42 unacked {queue['unacked_messages']:.0f}/128"
+                if state.diagnosis and state.diagnosis.hypothesis == "ACK_STALL"
+                else "CLI unavailable"
+                if state.diagnosis and state.diagnosis.hypothesis == "UNDETERMINED"
+                else f"{queue['queue_depth']:.0f} queued · Guaranteed"
+            ),
+            evidence_ids=["broker_queue"],
         ),
         ExplanationNode(
             change_offset_s=sources["data_quality"].change_offset_s,
@@ -376,20 +468,25 @@ def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> Expla
             "tokyo_source",
             "nyc_tcp",
             "Load may amplify pressure",
-            ["market", "semp_tcp"],
+            ["market", "broker_tcp"],
         ),
-        "tcp_queue": ("nyc_tcp", "nyc_queue", "Possible backpressure", ["semp_tcp", "semp_queue"]),
+        "tcp_queue": (
+            "nyc_tcp",
+            "nyc_queue",
+            "Possible backpressure",
+            ["broker_tcp", "broker_queue"],
+        ),
         "tcp_data": (
             "nyc_tcp",
             "data_quality",
             "Possible delivery delay",
-            ["semp_tcp", "data_quality"],
+            ["broker_tcp", "data_quality"],
         ),
         "queue_data": (
             "nyc_queue",
             "data_quality",
             "Possible freshness impact",
-            ["semp_queue", "data_quality"],
+            ["broker_queue", "data_quality"],
         ),
     }
     if float(queue["queue_depth"]) < 100:
@@ -421,7 +518,7 @@ def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> Expla
 
     if (
         state.scenario == "tokyo_burst"
-        and sources["semp_tcp"].change_offset_s is not None
+        and sources["broker_tcp"].change_offset_s is not None
         and "market_tcp" not in requested
     ):
         graph.edges.insert(
@@ -432,7 +529,7 @@ def explanation_graph(state: ConfidenceState, requested: Sequence[str]) -> Expla
                 target="nyc_tcp",
                 label="TCP pressure observed two seconds later; causality unproven",
                 kind="sequence",
-                evidence_ids=["market", "semp_tcp"],
+                evidence_ids=["market", "broker_tcp"],
             ),
         )
     return graph
@@ -442,7 +539,7 @@ def offmarket_graph(state: ConfidenceState, requested: Sequence[str]) -> Explana
     comparison = state.offmarket
     assert comparison is not None
     sources = {s.evidence_id: s for s in state.sources}
-    tcp, queue = sources["semp_tcp"].metrics, sources["semp_queue"].metrics
+    tcp, queue = sources["broker_tcp"].metrics, sources["broker_queue"].metrics
     gap = comparison.mid_delta_pips
     nodes = [
         ExplanationNode(
@@ -463,15 +560,26 @@ def offmarket_graph(state: ConfidenceState, requested: Sequence[str]) -> Explana
             node_id="nyc_tcp",
             label="NYC consumer port 43172",
             region="NEW YORK",
-            detail=f"RTT {float(tcp['srtt_us']) / 1000:.1f} ms · blocked {tcp['blocked_pct']:.0f}%",
-            evidence_ids=["corvil_tcp", "semp_tcp"],
+            detail=(
+                "CLI unverified · cause unconfirmed"
+                if state.diagnosis and state.diagnosis.hypothesis == "UNDETERMINED"
+                else f"RTT {float(tcp['srtt_us']) / 1000:.1f} ms · "
+                f"blocked {tcp['blocked_pct']:.0f}%"
+            ),
+            evidence_ids=["corvil_tcp", "broker_tcp"],
         ),
         ExplanationNode(
             node_id="nyc_queue",
             label="NYC-FX-PRICE-Q",
             region="NEW YORK",
-            detail=f"{queue['queue_depth']:.0f} queued · Guaranteed",
-            evidence_ids=["semp_queue"],
+            detail=(
+                f"Flow 42 unacked {queue['unacked_messages']:.0f}/128"
+                if state.diagnosis and state.diagnosis.hypothesis == "ACK_STALL"
+                else "CLI unverified"
+                if state.diagnosis and state.diagnosis.hypothesis == "UNDETERMINED"
+                else f"{queue['queue_depth']:.0f} queued · Guaranteed"
+            ),
+            evidence_ids=["broker_queue"],
         ),
         ExplanationNode(
             node_id="data_quality",
@@ -505,12 +613,15 @@ def offmarket_graph(state: ConfidenceState, requested: Sequence[str]) -> Explana
                 evidence_ids=["reference", "market"],
             )
         )
-    if comparison.classification == "STALE_DELIVERY":
+    hypothesis = state.diagnosis.hypothesis if state.diagnosis else "UNDETERMINED"
+    if hypothesis in {"CONSUMER_BACKPRESSURE", "NETWORK_DEGRADATION"}:
         allowed = {
-            "tcp_queue": ("nyc_tcp", "nyc_queue", ["semp_tcp", "semp_queue"]),
-            "queue_data": ("nyc_queue", "data_quality", ["semp_queue", "data_quality"]),
+            "tcp_queue": ("nyc_tcp", "nyc_queue", ["broker_tcp", "broker_queue"]),
+            "queue_data": ("nyc_queue", "data_quality", ["broker_queue", "data_quality"]),
         }
-    elif comparison.classification == "SOURCE_DIVERGENCE":
+    elif hypothesis == "ACK_STALL":
+        allowed = {"queue_data": ("nyc_queue", "data_quality", ["broker_queue", "data_quality"])}
+    elif hypothesis == "SOURCE_DIVERGENCE":
         allowed = {"source_data": ("tokyo_source", "data_quality", ["market", "data_quality"])}
     else:
         allowed = {}

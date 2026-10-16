@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -130,7 +130,19 @@ class ServiceHealth(StrictModel):
 class SourceEvidence(StrictModel):
     change_offset_s: int | None = None
     evidence_id: str
-    source: Literal["MARKET", "CORVIL", "SEMP_V1", "CONSUMER"]
+    source: Literal["MARKET", "CORVIL", "BROKER_CLI", "CONSUMER"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_broker_evidence(cls, value: Any) -> Any:
+        if isinstance(value, dict) and value.get("source") == "SEMP_V1":
+            value = dict(value)
+            value["source"] = "BROKER_CLI"
+            value["evidence_id"] = {"semp_tcp": "broker_tcp", "semp_queue": "broker_queue"}.get(
+                value.get("evidence_id"), value.get("evidence_id")
+            )
+        return value
+
     timestamp: AwareDatetime
     region: str
     summary: str
@@ -172,6 +184,53 @@ class OffMarketState(StrictModel):
     reasons: list[str]
 
 
+class CliCapture(StrictModel):
+    command_id: str
+    command: str
+    sampled_at: AwareDatetime
+    status: Literal["SIMULATED", "UNAVAILABLE", "UNSUPPORTED"] = "SIMULATED"
+    values: dict[str, float | str]
+    note: str = "Normalized simulated fields, not literal output from a broker session."
+
+
+class BrokerCliSnapshot(StrictModel):
+    broker: str
+    vpn: str
+    client: str
+    queue: str
+    connection_epoch: str
+    local_endpoint: str
+    remote_endpoint: str
+    broker_epoch: str = "demo-boot-01"
+    flow_id: int = 42
+    ad_role: str = "AD_ACTIVE"
+    sampled_at: AwareDatetime
+    capabilities: str = "Software broker CLI reference; validate target version and privileges."
+    captures: list[CliCapture]
+
+
+class DiagnosticEvidence(StrictModel):
+    source: Literal["PRICES", "CORVIL", "BROKER_CLI"]
+    finding: str
+    evidence_ids: list[str]
+
+
+class PathDiagnosis(StrictModel):
+    hypothesis: Literal[
+        "ALIGNED",
+        "CONSUMER_BACKPRESSURE",
+        "NETWORK_DEGRADATION",
+        "ACK_STALL",
+        "SOURCE_DIVERGENCE",
+        "REFERENCE_UNAVAILABLE",
+        "UNDETERMINED",
+    ]
+    suspected_component: str
+    evidence: list[DiagnosticEvidence]
+    next_check: str
+    limitations: list[str]
+
+
 class ConfidenceState(StrictModel):
     status: Literal["WITHIN_LIMITS", "WATCH", "AT_RISK", "IMPAIRED", "UNKNOWN"]
     confirmed: bool = False
@@ -187,6 +246,8 @@ class ConfidenceState(StrictModel):
     connection: dict[str, str]
     onset: AwareDatetime | None = None
     offmarket: OffMarketState | None = None
+    broker_cli: BrokerCliSnapshot | None = None
+    diagnosis: PathDiagnosis | None = None
 
 
 class ExplanationNode(StrictModel):
@@ -262,6 +323,7 @@ class AgentAssessment(StrictModel):
     checks: list[InvestigationCheck] = Field(default_factory=list)
     confidence_at_event: str | None = None
     offmarket_at_event: OffMarketState | None = None
+    diagnosis_at_event: PathDiagnosis | None = None
     suspected_component: str | None = None
     evidence_refs: list[str] = Field(default_factory=list)
     degraded: bool = False
@@ -319,6 +381,9 @@ class DashboardState(StrictModel):
         "aiops_unknown",
         "offmarket_stale",
         "offmarket_source",
+        "offmarket_network",
+        "offmarket_ack",
+        "offmarket_blind",
         "reference_loss",
         "reference_outlier",
         "market_reprice",

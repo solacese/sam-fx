@@ -78,6 +78,7 @@ function render(s) {
   if(window.SamFxDemo) { $('timing').textContent = `${s.observations} replay observations · no live latency measurement`; if(!window.SamFxDemo.storageAvailable) error('Browser storage is unavailable. Export handover to keep this session.'); }
   window.SamFxAiops.render(s, a, incident);
   window.SamFxOffmarket.render(s, a);
+  window.SamFxBroker.render(s, a);
   renderChat();
 }
 if(window.SamFxDemo) {

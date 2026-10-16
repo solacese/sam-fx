@@ -19,6 +19,9 @@ OFFMARKET_SCENARIOS = {
     "reference_loss",
     "reference_outlier",
     "market_reprice",
+    "offmarket_network",
+    "offmarket_ack",
+    "offmarket_blind",
 }
 
 
@@ -202,17 +205,34 @@ class QuoteSimulation:
     def observe(self, scenario: str, offset: int, now: datetime, fair_mid: float) -> OffMarketState:
         from datetime import timedelta
 
-        moved = scenario in {"offmarket_stale", "market_reprice"} and offset >= 2
+        moved = (
+            scenario
+            in {
+                "offmarket_stale",
+                "offmarket_network",
+                "offmarket_ack",
+                "offmarket_blind",
+                "market_reprice",
+            }
+            and offset >= 2
+        )
         if moved and not self.stepped:
             self.market_shift += 0.0018
             self.stepped = True
         reference_mid = fair_mid + self.market_shift
-        if scenario != "offmarket_stale" or offset < 2:
+        if (
+            scenario
+            not in {"offmarket_stale", "offmarket_network", "offmarket_ack", "offmarket_blind"}
+            or offset < 2
+        ):
             self.frozen_mid = reference_mid
         source_mid = reference_mid + (
             0.0006 if scenario == "offmarket_source" and offset >= 2 else 0
         )
-        stale = scenario == "offmarket_stale" and offset >= 2
+        stale = (
+            scenario in {"offmarket_stale", "offmarket_network", "offmarket_ack", "offmarket_blind"}
+            and offset >= 2
+        )
         delivered_mid = (self.frozen_mid or fair_mid) if stale else source_mid
         age = (offset - 1) * 1000 + 80 if stale else 80
 

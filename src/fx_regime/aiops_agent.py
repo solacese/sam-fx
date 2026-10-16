@@ -11,12 +11,21 @@ from groq import APIError, AsyncGroq
 from pydantic import Field
 
 from .aiops import explanation_graph, source_checks
-from .models import AgentAssessment, Cause, JevDecision, RegimeChange, StrictModel
+from .models import AgentAssessment, Cause, JevDecision, PathDiagnosis, RegimeChange, StrictModel
 
 
 class InvestigationResult(StrictModel):
     assessment: str = Field(min_length=1, max_length=900)
-    suspected_component: Literal["nyc_tcp", "nyc_queue", "tokyo_source", "reference", "unknown"]
+    suspected_component: Literal[
+        "nyc_tcp",
+        "nyc_queue",
+        "tokyo_source",
+        "reference",
+        "nyc_consumer",
+        "nyc_network",
+        "nyc_application",
+        "unknown",
+    ]
     evidence_ids: list[str] = Field(min_length=1, max_length=6)
     suggested_next_investigation: str = Field(min_length=1, max_length=700)
     hypothesis_edges: list[
@@ -80,8 +89,8 @@ def prepared_assessment(
         degraded=model != "deterministic-fallback",
         limitations=[
             (
-                "Market, Corvil and SEMP v1 readings are simulated; no real Corvil "
-                "or SEMP collector is connected."
+                "Market, Corvil and broker CLI readings are simulated; no real Corvil "
+                "or broker CLI collector is connected."
             ),
             "Graph arrows are hypotheses based on the frozen evidence, not established causality.",
         ],
@@ -94,11 +103,18 @@ def prepared_offmarket(
     state = change.aiops
     assert state is not None and state.offmarket is not None
     check = state.offmarket
-    component = {
-        "STALE_DELIVERY": "nyc_tcp",
-        "SOURCE_DIVERGENCE": "tokyo_source",
-        "REFERENCE_UNAVAILABLE": "reference",
-    }.get(check.classification, "unknown")
+    diagnosis = state.diagnosis
+    if diagnosis is None:
+        diagnosis = PathDiagnosis(
+            hypothesis="UNDETERMINED",
+            suspected_component="unknown",
+            evidence=[],
+            next_check="Collect fresh broker CLI and Corvil evidence for this legacy event.",
+            limitations=[
+                "This historical evidence package predates broker CLI diagnostic captures."
+            ],
+        )
+    component = diagnosis.suspected_component
     first = (
         "Greg, the reference quorum is unavailable, so we cannot establish "
         "whether NYC is off-market."
@@ -107,39 +123,41 @@ def prepared_offmarket(
         f"reference mid and {check.outside_band_pips:.1f} pips outside its bid/ask band."
     )
     explanation = {
-        "STALE_DELIVERY": "Tokyo remains aligned with the reference while the delivered quote "
-        "is old; NYC blocking and queue growth may explain the delay.",
-        "SOURCE_DIVERGENCE": "The fresh Tokyo source already differs from the reference and "
-        "NYC follows it; Corvil and SEMP remain healthy.",
-        "REFERENCE_UNAVAILABLE": "Check reference timestamps and clock "
-        "quality before blaming delivery.",
-    }.get(check.classification, "The discrepancy is measured; its cause is not established.")
-    next_check = {
-        "STALE_DELIVERY": "Inspect FX-PRICE-NYC-01 (10.30.1.20:43172), transmit window and "
-        "NYC-FX-PRICE-Q drain rate; compare with the healthy peer.",
-        "SOURCE_DIVERGENCE": "Compare the Tokyo source's raw quotes, symbol mapping and quote "
-        "basis with the independent contributors before blaming the network.",
-        "REFERENCE_UNAVAILABLE": "Restore at least two fresh, agreeing reference contributors "
-        "and verify clock synchronization; withhold the off-market verdict.",
-    }.get(check.classification, "Compare source and delivered timestamps with the reference.")
+        "CONSUMER_BACKPRESSURE": "Corvil shows zero-window evidence on an otherwise healthy "
+        "network, while CLI shows a closed transmit window. The consumer may not be reading.",
+        "NETWORK_DEGRADATION": "Corvil and broker TCP retransmit evidence agree while the "
+        "receive window is open. The NYC network segment may be delaying delivery.",
+        "ACK_STALL": "TCP remains healthy, but flow 42 is at its delivered-unacked limit. "
+        "Consumer acknowledgement or processing progress may be stalled.",
+        "SOURCE_DIVERGENCE": "The fresh Tokyo quote already differs from the reference, NYC "
+        "follows it and the transport/flow evidence is normal. Inspect source pricing inputs.",
+        "REFERENCE_UNAVAILABLE": "A price verdict requires a fresh independent reference quorum.",
+    }.get(
+        diagnosis.hypothesis,
+        "The quote discrepancy is measured, but missing or conflicting "
+        "technical evidence prevents localizing its cause.",
+    )
+    next_check = diagnosis.next_check
     return AgentAssessment(
         correlation_id=change.correlation_id,
         symbol=change.symbol,
         assessment=first + " " + explanation,
-        likely_cause=Cause.INFRASTRUCTURE if component == "nyc_tcp" else Cause.UNCLEAR,
+        likely_cause=Cause.INFRASTRUCTURE if component.startswith("nyc_") else Cause.UNCLEAR,
         evidence=check.reasons + [s.summary for s in state.sources if s.source != "MARKET"],
         evidence_refs=[s.evidence_id for s in state.sources],
         suspected_component=component,
         confidence_at_event=state.status,
         offmarket_at_event=check.model_copy(deep=True),
+        diagnosis_at_event=diagnosis.model_copy(deep=True),
         checks=source_checks(state),
         graph=explanation_graph(state, ["tcp_queue", "queue_data", "source_data"]),
         suggested_next_investigation=next_check,
         model=model,
         jev_decisions=decisions,
         degraded=model != "deterministic-fallback",
-        limitations=[
-            "All prices, reference contributors, Corvil and SEMP readings are simulated.",
+        limitations=diagnosis.limitations
+        + [
+            "All prices, reference contributors, Corvil and broker CLI readings are simulated.",
             "Off-market means outside a like-for-like indicative reference band, not proven "
             "fair value, an executable arbitrage or a trading recommendation.",
             "1.0 pip tolerance, 500 ms reference age, 100 ms alignment, 20 ms clock uncertainty, "
@@ -165,7 +183,7 @@ async def investigate(
             "function": {
                 "name": "inspect_fx_path",
                 "description": (
-                    "Read the frozen simulated Market, Corvil and SEMP v1 observations,"
+                    "Read the frozen simulated Market, Corvil and broker CLI observations,"
                     " including the NYC TCP session, Guaranteed queue, consumer "
                     "freshness, independent reference quotes, comparison verdict and "
                     "unaffected peer."
@@ -204,6 +222,21 @@ async def investigate(
                 "prove payload loss. Compare the unaffected peer. Name a suspected "
                 "component, not a proven cause. Temporal order does not prove causality. "
                 "Stale evidence means unknown. Never invent ports, metrics or evidence. "
+                "Use the diagnosis hypothesis and three-source findings supplied "
+                "by the scoped tool. "
+                "Distinguish CONSUMER_BACKPRESSURE (normal RTT, zero peer receive window), "
+                "NETWORK_DEGRADATION (retransmissions, open window), and ACK_STALL (healthy TCP, "
+                "delivered-unacked limit reached). TCP ACKs are not application settlement. "
+                "Blocked percentage is about the last minute, not an instantaneous sample. "
+                "Corvil and CLI TCP counters may be the same fault, never "
+                "independent confidence votes. "
+                "Only identity-matched, fresh captures on the AD-active broker "
+                "support attribution. "
+                "Missing CLI evidence never removes a confirmed price discrepancy, "
+                "but its cause stays unknown. "
+                "Captures are SIMULATED normalized fields, not a real SSH execution. "
+                "Commands are fixed read-only show commands; never invent or "
+                "execute arbitrary CLI. "
                 "No remediation actions or trading advice."
             ),
         },
@@ -245,7 +278,8 @@ async def investigate(
                 "role": "user",
                 "content": (
                     "Return JSON: assessment (2 short sentences for Greg), suspected_component "
-                    "(nyc_tcp, nyc_queue, tokyo_source, reference, unknown), "
+                    "(nyc_tcp, nyc_queue, nyc_consumer, nyc_network, nyc_application, "
+                    "tokyo_source, reference, unknown), "
                     "evidence_ids (from tool), "
                     "suggested_next_investigation, hypothesis_edges (subset of market_tcp, "
                     "tcp_queue, queue_data, tcp_data, source_data). If reference quorum "
@@ -275,11 +309,8 @@ async def investigate(
         if state.offmarket:
             if re.search(r"\bpips?\b", result.assessment, flags=re.IGNORECASE):
                 raise ValueError("Price-gap quantities belong to deterministic comparison fields")
-            allowed = {
-                "STALE_DELIVERY": {"nyc_tcp", "nyc_queue", "unknown"},
-                "SOURCE_DIVERGENCE": {"tokyo_source", "unknown"},
-                "REFERENCE_UNAVAILABLE": {"reference", "unknown"},
-            }.get(state.offmarket.classification, {"unknown"})
+            expected = state.diagnosis.suspected_component if state.diagnosis else "unknown"
+            allowed = {expected, "unknown"}
             if result.suspected_component not in allowed:
                 raise ValueError("Suspect contradicts frozen quote comparison")
             if not {"reference", "data_quality"} <= set(result.evidence_ids):

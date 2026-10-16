@@ -55,7 +55,7 @@ function load(saved={}) {
     }
   }
   for(const [scenario,status,suspect] of [
-    ['offmarket_stale','OFF_MARKET','nyc_tcp'],['offmarket_source','OFF_MARKET','tokyo_source'],
+    ['offmarket_stale','OFF_MARKET','nyc_consumer'],['offmarket_network','OFF_MARKET','nyc_network'],['offmarket_ack','OFF_MARKET','nyc_application'],['offmarket_blind','OFF_MARKET','unknown'],['offmarket_source','OFF_MARKET','tokyo_source'],
     ['reference_loss','UNKNOWN','reference'],['reference_outlier','WITHIN_BAND',null],
     ['market_reprice','WITHIN_BAND',null]
   ]) {
@@ -77,5 +77,5 @@ function load(saved={}) {
   }
   const html=fs.readFileSync('dist/pages/index.html','utf8');
   assert(!html.includes('/assets/') && !html.includes('/api/'));
-  console.log('Pages checks passed: five off-market cases, five AIOps cases, five legacy scenarios, prepared causes, lifecycle, persistence, distinct IDs, relative assets.');
+  console.log('Pages checks passed: eight off-market cases, five AIOps cases, five legacy scenarios, prepared causes, lifecycle, persistence, distinct IDs, relative assets.');
 })().catch(e=>{console.error(e);process.exit(1);});

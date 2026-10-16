@@ -52,6 +52,9 @@ async def build() -> None:
         "aiops_unknown",
         "offmarket_stale",
         "offmarket_source",
+        "offmarket_network",
+        "offmarket_ack",
+        "offmarket_blind",
         "reference_loss",
         "reference_outlier",
         "market_reprice",
@@ -62,7 +65,15 @@ async def build() -> None:
     (OUTPUT / "demo-data.js").write_text(
         "window.SamFxFixtures=" + json.dumps(data, separators=(",", ":")) + ";\n"
     )
-    for name in ("app.js", "chart.js", "aiops.js", "offmarket.js", "styles.css", "demo.js"):
+    for name in (
+        "app.js",
+        "chart.js",
+        "aiops.js",
+        "offmarket.js",
+        "broker.js",
+        "styles.css",
+        "demo.js",
+    ):
         shutil.copy2(ROOT / "web" / name, OUTPUT / name)
     html = (ROOT / "web" / "index.html").read_text()
     html = html.replace('href="/"', 'href="./"').replace("/assets/", "./")
